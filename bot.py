@@ -41,7 +41,19 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TELEGRAM_TOKEN)
+        .connect_timeout(60)
+        .read_timeout(60)
+        .write_timeout(60)
+        .pool_timeout(60)
+        .get_updates_connect_timeout(60)
+        .get_updates_read_timeout(60)
+        .get_updates_write_timeout(60)
+        .get_updates_pool_timeout(60)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("balance", balance))
