@@ -1,1 +1,51 @@
+name: Import BinaryOptionsToolsV2
 
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Clone BinaryOptionsToolsV2
+        run: |
+          git clone --depth 1 \
+            https://github.com/ChipaDevTeam/BinaryOptionsTools-v2.git \
+            /tmp/binary-options-tools
+
+      - name: Copy Python package
+        run: |
+          mkdir -p vendor
+
+          rsync -av \
+            --exclude='.git/' \
+            /tmp/binary-options-tools/python/ \
+            ./vendor/
+
+      - name: Show imported files
+        run: |
+          echo "=== Imported files ==="
+          find vendor -maxdepth 5 -type f | sort
+
+      - name: Commit imported package
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add vendor
+
+          if git diff --cached --quiet; then
+            echo "No changes."
+          else
+            git commit -m "Import BinaryOptionsToolsV2"
+            git push
+          fi
