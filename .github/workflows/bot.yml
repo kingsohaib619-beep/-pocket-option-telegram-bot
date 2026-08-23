@@ -1,0 +1,30 @@
+name: Pocket Option Telegram Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "python-telegram-bot>=22,<23"
+          pip install --upgrade binaryoptionstoolsv2
+
+      - name: Start Telegram bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          POCKET_OPTION_SSID: ${{ secrets.POCKET_OPTION_SSID }}
+        run: |
+          python bot.py
