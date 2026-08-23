@@ -127,10 +127,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "amount":
-        await query.message.reply_text(
-            "💵 المبلغ غير قابل للتنفيذ حاليًا.\n\n"
-            "سنضيف اختيار المبلغ في الخطوة التالية."
-        )
+    keyboard = [
+        [
+            InlineKeyboardButton("$1", callback_data="amount_1"),
+            InlineKeyboardButton("$5", callback_data="amount_5"),
+        ],
+        [
+            InlineKeyboardButton("$10", callback_data="amount_10"),
+            InlineKeyboardButton("$25", callback_data="amount_25"),
+        ],
+    ]
+
+    await query.message.reply_text(
+        "💵 اختر مبلغ الصفقة:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+elif query.data.startswith("amount_"):
+    amount = float(query.data.replace("amount_", ""))
+    context.user_data["amount"] = amount
+
+    pair = context.user_data.get("pair", "غير محدد")
+    duration = context.user_data.get("duration", "غير محددة")
+
+    await query.message.reply_text(
+        f"✅ تم حفظ الإعدادات\n\n"
+        f"💱 الزوج: {pair}\n"
+        f"⏱ المدة: {duration} ثانية\n"
+        f"💵 المبلغ: ${amount}\n\n"
+        f"⚠️ لم يتم فتح أي صفقة."
+    )
 
     elif query.data in ("buy", "sell"):
         await query.message.reply_text(
