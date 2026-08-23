@@ -12,6 +12,10 @@ from telegram.ext import (
 from BinaryOptionsToolsV2 import PocketOptionAsync
 
 
+# =========================================================
+# Environment
+# =========================================================
+
 POCKET_SSID = os.environ["POCKET_OPTION_SSID"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
@@ -45,6 +49,7 @@ def main_keyboard():
 # =========================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     context.user_data.clear()
 
     await update.message.reply_text(
@@ -177,6 +182,12 @@ async def show_status(query):
         )
 
     except Exception as e:
+
+        print(
+            "STATUS ERROR:",
+            type(e).__name__,
+            str(e)
+        )
 
         await query.edit_message_text(
             f"❌ خطأ في الاتصال:\n"
@@ -478,7 +489,10 @@ async def execute_trade(query, context):
             if not client.is_connected():
                 await client.connect()
 
-            # تنفيذ BUY
+            # =================================================
+            # BUY
+            # =================================================
+
             if direction == "buy":
 
                 trade_id, trade_data = await client.buy(
@@ -488,7 +502,10 @@ async def execute_trade(query, context):
                     check_win=False
                 )
 
-            # تنفيذ SELL
+            # =================================================
+            # SELL
+            # =================================================
+
             else:
 
                 trade_id, trade_data = await client.sell(
@@ -514,6 +531,10 @@ async def execute_trade(query, context):
                 else "🔴 SELL"
             )
 
+            # =================================================
+            # Trade opened
+            # =================================================
+
             await query.edit_message_text(
                 "✅ تم فتح الصفقة\n\n"
                 f"🆔 Trade ID:\n"
@@ -525,12 +546,18 @@ async def execute_trade(query, context):
                 "⏳ ننتظر النتيجة..."
             )
 
-            # انتظار مدة الصفقة قبل طلب النتيجة
+            # =================================================
+            # Wait for expiration
+            # =================================================
+
             await asyncio.sleep(
                 int(duration)
             )
 
-            # فحص النتيجة
+            # =================================================
+            # Check result
+            # =================================================
+
             try:
 
                 result = await client.check_win(
@@ -542,22 +569,33 @@ async def execute_trade(query, context):
                     result
                 )
 
-                result_text = str(result)
+                result_text = str(
+                    result
+                ).lower()
 
-                if "win" in result_text.lower():
+                if "win" in result_text:
+
                     result_emoji = "🟢"
-                elif "loss" in result_text.lower():
+                    result_label = "WIN"
+
+                elif "loss" in result_text:
+
                     result_emoji = "🔴"
+                    result_label = "LOSS"
+
                 else:
+
                     result_emoji = "ℹ️"
+                    result_label = "UNKNOWN"
 
                 await query.message.reply_text(
                     f"{result_emoji} نتيجة الصفقة\n\n"
-                    f"🆔 {trade_id}\n"
-                    f"💱 {pair}\n"
-                    f"📈 {direction_text}\n"
-                    f"💵 ${amount}\n\n"
-                    f"📊 النتيجة:\n"
+                    f"🆔 Trade ID:\n"
+                    f"{trade_id}\n\n"
+                    f"💱 الزوج: {pair}\n"
+                    f"📈 الاتجاه: {direction_text}\n"
+                    f"💵 المبلغ: ${amount}\n\n"
+                    f"📊 النتيجة: {result_label}\n\n"
                     f"{result}"
                 )
 
@@ -578,24 +616,23 @@ async def execute_trade(query, context):
                     f"{type(result_error).__name__}"
                 )
 
-    except Exception as e:
-    print("=" * 60)
-    print("TRADE ERROR")
-    print("TYPE:", type(e).__name__)
-    print("MESSAGE:", str(e))
-    print("REPR:", repr(e))
-    print("=" * 60)
+    # =========================================================
+    # Trade error
+    # =========================================================
 
-    await query.message.reply_text(
-        "❌ فشل تنفيذ الصفقة.\n\n"
-        f"نوع الخطأ:\n{type(e).__name__}\n\n"
-        f"التفاصيل:\n{str(e)}"
-    )
+    except Exception as e:
+
+        print("=" * 60)
+        print("TRADE ERROR")
+        print("TYPE:", type(e).__name__)
+        print("MESSAGE:", str(e))
+        print("REPR:", repr(e))
+        print("=" * 60)
 
         await query.message.reply_text(
             "❌ فشل تنفيذ الصفقة.\n\n"
-            f"الخطأ: {type(e).__name__}\n\n"
-            "لم يتم اعتبار العملية ناجحة."
+            f"نوع الخطأ:\n{type(e).__name__}\n\n"
+            f"التفاصيل:\n{str(e)}"
         )
 
 
@@ -609,13 +646,14 @@ async def button_handler(
 ):
 
     query = update.callback_query
+
     await query.answer()
 
     data = query.data
 
-    # -------------------------
+    # =====================================================
     # Home
-    # -------------------------
+    # =====================================================
 
     if data == "home":
 
@@ -624,25 +662,29 @@ async def button_handler(
             context
         )
 
-    # -------------------------
+    # =====================================================
     # Balance
-    # -------------------------
+    # =====================================================
 
     elif data == "balance":
 
-        await show_balance(query)
+        await show_balance(
+            query
+        )
 
-    # -------------------------
+    # =====================================================
     # Status
-    # -------------------------
+    # =====================================================
 
     elif data == "status":
 
-        await show_status(query)
+        await show_status(
+            query
+        )
 
-    # -------------------------
+    # =====================================================
     # Pair
-    # -------------------------
+    # =====================================================
 
     elif data == "pair":
 
@@ -665,9 +707,9 @@ async def button_handler(
             context
         )
 
-    # -------------------------
+    # =====================================================
     # Duration
-    # -------------------------
+    # =====================================================
 
     elif data == "duration":
 
@@ -692,9 +734,9 @@ async def button_handler(
             context
         )
 
-    # -------------------------
+    # =====================================================
     # Amount
-    # -------------------------
+    # =====================================================
 
     elif data == "amount":
 
@@ -719,9 +761,9 @@ async def button_handler(
             context
         )
 
-    # -------------------------
+    # =====================================================
     # BUY
-    # -------------------------
+    # =====================================================
 
     elif data == "buy":
 
@@ -732,9 +774,9 @@ async def button_handler(
             context
         )
 
-    # -------------------------
+    # =====================================================
     # SELL
-    # -------------------------
+    # =====================================================
 
     elif data == "sell":
 
@@ -745,9 +787,9 @@ async def button_handler(
             context
         )
 
-    # -------------------------
+    # =====================================================
     # Confirm
-    # -------------------------
+    # =====================================================
 
     elif data == "confirm_trade":
 
@@ -756,9 +798,9 @@ async def button_handler(
             context
         )
 
-    # -------------------------
+    # =====================================================
     # Cancel
-    # -------------------------
+    # =====================================================
 
     elif data == "cancel_trade":
 
@@ -789,6 +831,7 @@ def main():
         .get_updates_connect_timeout(60)
         .get_updates_read_timeout(60)
         .get_updates_write_timeout(60)
+        .get_updates_pool_timeout(60)
         .build()
     )
 
@@ -812,5 +855,10 @@ def main():
     app.run_polling()
 
 
+# =========================================================
+# Entry point
+# =========================================================
+
 if __name__ == "__main__":
+
     main()
