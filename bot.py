@@ -15,8 +15,12 @@ POCKET_SSID = os.environ["POCKET_OPTION_SSID"]
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
+# =========================
+# Main menu
+# =========================
+
+def main_keyboard():
+    return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("💰 الرصيد", callback_data="balance"),
             InlineKeyboardButton("📊 الحالة", callback_data="status"),
@@ -32,38 +36,135 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🟢 BUY", callback_data="buy"),
             InlineKeyboardButton("🔴 SELL", callback_data="sell"),
         ],
-    ]
+    ])
 
-    await update.message.reply_text(
+
+async def show_main_menu(query, context):
+    pair = context.user_data.get("pair", "غير محدد")
+    duration = context.user_data.get("duration", "غير محددة")
+    amount = context.user_data.get("amount", "غير محدد")
+    direction = context.user_data.get("direction", "غير محدد")
+
+    if direction == "buy":
+        direction_text = "🟢 BUY"
+    elif direction == "sell":
+        direction_text = "🔴 SELL"
+    else:
+        direction_text = "غير محدد"
+
+    text = (
         "🤖 Pocket Option Demo Bot\n\n"
-        "🟢 الحساب: DEMO\n"
-        "اختر العملية:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        "🧪 الحساب: DEMO\n\n"
+        "📋 إعدادات الصفقة الحالية:\n"
+        f"💱 الزوج: {pair}\n"
+        f"⏱ المدة: {duration} ثانية\n"
+        f"💵 المبلغ: ${amount}\n"
+        f"📈 الاتجاه: {direction_text}\n\n"
+        "اختر العملية:"
+    )
+
+    await query.edit_message_text(
+        text,
+        reply_markup=main_keyboard()
     )
 
 
-async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+# =========================
+# Start
+# =========================
 
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+
+    await update.message.reply_text(
+        "🤖 Pocket Option Demo Bot\n\n"
+        "🧪 الحساب: DEMO\n\n"
+        "اختر العملية:",
+        reply_markup=main_keyboard(),
+    )
+
+
+# =========================
+# Balance
+# =========================
+
+async def show_balance(query):
     try:
         async with PocketOptionAsync(ssid=POCKET_SSID) as client:
-            balance_value = await client.balance()
+            balance = await client.balance()
 
-        await query.message.reply_text(
-            f"💰 Demo Balance\n\n{balance_value}"
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "🔄 تحديث",
+                    callback_data="balance"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ رجوع",
+                    callback_data="home"
+                )
+            ],
+        ]
+
+        await query.edit_message_text(
+            f"💰 Demo Balance\n\n"
+            f"{balance}",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     except Exception as e:
         print(f"Balance error: {type(e).__name__}: {e}")
 
-        await query.message.reply_text(
-            f"❌ تعذر الحصول على الرصيد.\n"
-            f"Error: {type(e).__name__}"
+        await query.edit_message_text(
+            f"❌ تعذر الحصول على الرصيد.\n\n"
+            f"Error: {type(e).__name__}",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "⬅️ رجوع",
+                        callback_data="home"
+                    )
+                ]
+            ])
         )
 
 
-async def show_pair_menu(query):
+# =========================
+# Status
+# =========================
+
+async def show_status(query):
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="home"
+            )
+        ]
+    ]
+
+    await query.edit_message_text(
+        "📊 حالة البوت\n\n"
+        "🟢 Telegram Bot: Online\n"
+        "🟢 Pocket Option: Connected\n"
+        "🧪 Account: DEMO",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+# =========================
+# Pair menu
+# =========================
+
+async def show_pair_menu(query, context):
+
+    current_pair = context.user_data.get(
+        "pair",
+        "غير محدد"
+    )
+
     keyboard = [
         [
             InlineKeyboardButton(
@@ -85,15 +186,33 @@ async def show_pair_menu(query):
                 callback_data="pair_AUDUSD"
             ),
         ],
+        [
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="home"
+            )
+        ],
     ]
 
-    await query.message.reply_text(
-        "💱 اختر الزوج:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+    await query.edit_message_text(
+        f"💱 اختيار الزوج\n\n"
+        f"الزوج الحالي: {current_pair}\n\n"
+        "اختر الزوج:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
-async def show_duration_menu(query):
+# =========================
+# Duration menu
+# =========================
+
+async def show_duration_menu(query, context):
+
+    current_duration = context.user_data.get(
+        "duration",
+        "غير محددة"
+    )
+
     keyboard = [
         [
             InlineKeyboardButton(
@@ -111,15 +230,33 @@ async def show_duration_menu(query):
                 callback_data="duration_300"
             ),
         ],
+        [
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="home"
+            )
+        ],
     ]
 
-    await query.message.reply_text(
-        "⏱ اختر المدة:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+    await query.edit_message_text(
+        f"⏱ اختيار المدة\n\n"
+        f"المدة الحالية: {current_duration} ثانية\n\n"
+        "اختر المدة:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
-async def show_amount_menu(query):
+# =========================
+# Amount menu
+# =========================
+
+async def show_amount_menu(query, context):
+
+    current_amount = context.user_data.get(
+        "amount",
+        "غير محدد"
+    )
+
     keyboard = [
         [
             InlineKeyboardButton(
@@ -141,35 +278,74 @@ async def show_amount_menu(query):
                 callback_data="amount_25"
             ),
         ],
+        [
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="home"
+            )
+        ],
     ]
 
-    await query.message.reply_text(
-        "💵 اختر مبلغ الصفقة:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+    await query.edit_message_text(
+        f"💵 اختيار المبلغ\n\n"
+        f"المبلغ الحالي: ${current_amount}\n\n"
+        "اختر المبلغ:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
+# =========================
+# Trade confirmation
+# =========================
+
 async def show_trade_confirmation(query, context):
+
     pair = context.user_data.get("pair")
     duration = context.user_data.get("duration")
     amount = context.user_data.get("amount")
     direction = context.user_data.get("direction")
 
-    if not pair or not duration or not amount or not direction:
-        await query.message.reply_text(
-            "⚠️ أكمل إعداد الصفقة أولًا:\n\n"
-            "1️⃣ اختر الزوج\n"
-            "2️⃣ اختر المدة\n"
-            "3️⃣ اختر المبلغ\n"
-            "4️⃣ اختر BUY أو SELL"
+    if not pair or not duration or not amount:
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "💱 اختيار الزوج",
+                    callback_data="pair"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⏱ اختيار المدة",
+                    callback_data="duration"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "💵 اختيار المبلغ",
+                    callback_data="amount"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "⬅️ رجوع",
+                    callback_data="home"
+                )
+            ],
+        ]
+
+        await query.edit_message_text(
+            "⚠️ إعداد الصفقة غير مكتمل.\n\n"
+            "يجب اختيار:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
+
         return
 
-    direction_text = (
-        "🟢 BUY"
-        if direction == "buy"
-        else "🔴 SELL"
-    )
+    if direction == "buy":
+        direction_text = "🟢 BUY"
+    else:
+        direction_text = "🔴 SELL"
 
     keyboard = [
         [
@@ -181,100 +357,210 @@ async def show_trade_confirmation(query, context):
                 "❌ إلغاء",
                 callback_data="cancel_trade"
             ),
-        ]
+        ],
+        [
+            InlineKeyboardButton(
+                "⬅️ رجوع",
+                callback_data="home"
+            )
+        ],
     ]
 
-    await query.message.reply_text(
+    await query.edit_message_text(
         "📋 تأكيد الصفقة\n\n"
         f"💱 الزوج: {pair}\n"
         f"📈 الاتجاه: {direction_text}\n"
         f"💵 المبلغ: ${amount}\n"
         f"⏱ المدة: {duration} ثانية\n\n"
         "🧪 الحساب: DEMO\n\n"
-        "⚠️ هذه المرحلة لا تنفذ الصفقة.\n"
-        "زر التأكيد سيعرض رسالة اختبار فقط.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        "⚠️ هذه مرحلة اختبار.\n"
+        "لن يتم فتح أي صفقة.",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =========================
+# Button handler
+# =========================
+
+async def button_handler(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
     query = update.callback_query
     await query.answer()
 
     data = query.data
 
-    if data == "balance":
-        await balance(update, context)
+    # Home
+    if data == "home":
+        await show_main_menu(query, context)
 
+    # Balance
+    elif data == "balance":
+        await show_balance(query)
+
+    # Status
     elif data == "status":
-        await query.message.reply_text(
-            "🟢 Telegram Bot: Online\n"
-            "🟢 Pocket Option: Connected\n"
-            "🧪 Account: DEMO"
+        await show_status(query)
+
+    # Pair menu
+    elif data == "pair":
+        await show_pair_menu(query, context)
+
+    # Pair selected
+    elif data.startswith("pair_"):
+
+        pair = data.replace(
+            "pair_",
+            ""
         )
 
-    elif data == "pair":
-        await show_pair_menu(query)
-
-    elif data.startswith("pair_"):
-        pair = data.replace("pair_", "")
         context.user_data["pair"] = pair
 
-        await query.message.reply_text(
-            f"✅ تم اختيار الزوج: {pair}"
+        await show_main_menu(
+            query,
+            context
         )
 
+    # Duration menu
     elif data == "duration":
-        await show_duration_menu(query)
+        await show_duration_menu(
+            query,
+            context
+        )
 
+    # Duration selected
     elif data.startswith("duration_"):
-        duration = int(data.replace("duration_", ""))
+
+        duration = int(
+            data.replace(
+                "duration_",
+                ""
+            )
+        )
+
         context.user_data["duration"] = duration
 
-        await query.message.reply_text(
-            f"✅ تم اختيار المدة: {duration} ثانية"
+        await show_main_menu(
+            query,
+            context
         )
 
+    # Amount menu
     elif data == "amount":
-        await show_amount_menu(query)
+        await show_amount_menu(
+            query,
+            context
+        )
 
+    # Amount selected
     elif data.startswith("amount_"):
-        amount = float(data.replace("amount_", ""))
+
+        amount = float(
+            data.replace(
+                "amount_",
+                ""
+            )
+        )
+
         context.user_data["amount"] = amount
 
-        await query.message.reply_text(
-            f"✅ تم اختيار المبلغ: ${amount}"
+        await show_main_menu(
+            query,
+            context
         )
 
-    elif data in ("buy", "sell"):
-        context.user_data["direction"] = data
+    # BUY / SELL
+    elif data == "buy":
+
+        context.user_data["direction"] = "buy"
 
         await show_trade_confirmation(
             query,
             context
         )
 
+    elif data == "sell":
+
+        context.user_data["direction"] = "sell"
+
+        await show_trade_confirmation(
+            query,
+            context
+        )
+
+    # Confirm
     elif data == "confirm_trade":
-        await query.message.reply_text(
-            "🧪 اختبار التأكيد ناجح.\n\n"
-            "تم تسجيل إعداد الصفقة فقط:\n\n"
-            f"💱 {context.user_data.get('pair', 'غير محدد')}\n"
-            f"📈 {context.user_data.get('direction', 'غير محدد').upper()}\n"
-            f"💵 ${context.user_data.get('amount', 'غير محدد')}\n"
-            f"⏱ {context.user_data.get('duration', 'غير محدد')} ثانية\n\n"
-            "🚫 لم يتم فتح أي صفقة."
+
+        pair = context.user_data.get(
+            "pair",
+            "غير محدد"
         )
 
+        direction = context.user_data.get(
+            "direction",
+            "غير محدد"
+        )
+
+        amount = context.user_data.get(
+            "amount",
+            "غير محدد"
+        )
+
+        duration = context.user_data.get(
+            "duration",
+            "غير محددة"
+        )
+
+        direction_text = (
+            "🟢 BUY"
+            if direction == "buy"
+            else "🔴 SELL"
+        )
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "⬅️ القائمة الرئيسية",
+                    callback_data="home"
+                )
+            ]
+        ]
+
+        await query.edit_message_text(
+            "🧪 اختبار التأكيد ناجح\n\n"
+            f"💱 الزوج: {pair}\n"
+            f"📈 الاتجاه: {direction_text}\n"
+            f"💵 المبلغ: ${amount}\n"
+            f"⏱ المدة: {duration} ثانية\n\n"
+            "🚫 لم يتم فتح أي صفقة.",
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            )
+        )
+
+    # Cancel
     elif data == "cancel_trade":
-        context.user_data.pop("direction", None)
 
-        await query.message.reply_text(
-            "❌ تم إلغاء الصفقة.\n\n"
-            "لم يتم تنفيذ أي أمر."
+        context.user_data.pop(
+            "direction",
+            None
         )
 
+        await show_main_menu(
+            query,
+            context
+        )
+
+
+# =========================
+# Main
+# =========================
 
 def main():
+
     app = (
         Application.builder()
         .token(TELEGRAM_TOKEN)
@@ -285,19 +571,25 @@ def main():
         .get_updates_connect_timeout(60)
         .get_updates_read_timeout(60)
         .get_updates_write_timeout(60)
-        .get_updates_pool_timeout(60)
         .build()
     )
 
     app.add_handler(
-        CommandHandler("start", start)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
     app.add_handler(
-        CallbackQueryHandler(button_handler)
+        CallbackQueryHandler(
+            button_handler
+        )
     )
 
-    print("Telegram bot started...")
+    print(
+        "Telegram bot started..."
+    )
 
     app.run_polling()
 
