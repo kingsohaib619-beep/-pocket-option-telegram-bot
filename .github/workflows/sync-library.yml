@@ -20,15 +20,16 @@ jobs:
         run: |
           git clone https://github.com/A11ksa/API-Pocket-Option.git /tmp/pocket-api
 
-      - name: Inspect source repository
+      - name: Show source structure
         run: |
-          find /tmp/pocket-api -maxdepth 3 -type f | sort
+          echo "=== A11ksa repository ==="
+          find /tmp/pocket-api -maxdepth 4 -type f | sort
 
-      - name: Copy source files
+      - name: Copy complete source
         run: |
           rsync -av --exclude='.git/' /tmp/pocket-api/ ./
 
-      - name: Commit changes
+      - name: Commit imported files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -38,6 +39,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Import A11ksa Pocket Option API"
+            git commit -m "Import complete A11ksa library"
             git push
           fi
