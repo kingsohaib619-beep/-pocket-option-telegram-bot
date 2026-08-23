@@ -35,7 +35,29 @@ jobs:
         run: |
           python -c "import BinaryOptionsToolsV2; print('BinaryOptionsToolsV2 OK:', BinaryOptionsToolsV2.__file__)"
           python -c "from BinaryOptionsToolsV2 import PocketOptionAsync; print('PocketOptionAsync OK')"
+          
+      - name: Inspect active Pocket Option assets
+        env:
+          POCKET_OPTION_SSID: ${{ secrets.POCKET_OPTION_SSID }}
+        run: |
+          python - <<'PY'
+          import os
+          import asyncio
+          from BinaryOptionsToolsV2 import PocketOptionAsync
 
+          async def main():
+              ssid = os.environ["POCKET_OPTION_SSID"]
+
+              async with PocketOptionAsync(ssid=ssid) as client:
+                  print("=== ACTIVE ASSETS ===")
+
+                  assets = await client.active_assets()
+
+                  for asset in assets:
+                      print(asset)
+
+          asyncio.run(main())
+          PY
       - name: Check Python syntax
         run: |
           python -m py_compile bot.py
