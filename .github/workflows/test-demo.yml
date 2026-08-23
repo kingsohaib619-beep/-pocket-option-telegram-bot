@@ -19,10 +19,18 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install Telegram dependency
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install "python-telegram-bot>=22,<23"
+
+      - name: Install BinaryOptionsToolsV2
+        run: |
+          pip install binaryoptionstoolsv2
+
+      - name: Verify BinaryOptionsToolsV2
+        run: |
+          python -c "from BinaryOptionsToolsV2.pocketoption.asynchronous import PocketOptionAsync; print('BinaryOptionsToolsV2 OK')"
 
       - name: Test Demo connection
         env:
