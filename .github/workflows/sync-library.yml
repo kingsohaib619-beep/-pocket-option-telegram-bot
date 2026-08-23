@@ -22,19 +22,13 @@ jobs:
 
       - name: Inspect source repository
         run: |
-          echo "Files in A11ksa repository:"
           find /tmp/pocket-api -maxdepth 3 -type f | sort
 
       - name: Copy source files
         run: |
-          cp -R /tmp/pocket-api/. ./ \
-            --exclude=.git
+          rsync -av --exclude='.git/' /tmp/pocket-api/ ./
 
-      - name: Remove Git metadata
-        run: |
-          rm -rf .git/modules
-
-      - name: Commit imported library
+      - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
