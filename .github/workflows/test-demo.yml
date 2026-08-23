@@ -1,39 +1,22 @@
-name: Test Pocket Option Demo
+import asyncio
+import os
 
-on:
-  workflow_dispatch:
+from BinaryOptionsToolsV2 import PocketOptionAsync
 
-permissions:
-  contents: read
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
+async def main():
+    ssid = os.environ["POCKET_OPTION_SSID"]
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
+    print("Starting Pocket Option connection...")
 
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
+    async with PocketOptionAsync(ssid=ssid) as client:
+        print("Connected successfully.")
 
-      - name: Install Telegram dependency
-        run: |
-          python -m pip install --upgrade pip
-          pip install "python-telegram-bot>=22,<23"
+        balance = await client.balance()
 
-      - name: Install BinaryOptionsToolsV2
-        run: |
-          pip install binaryoptionstoolsv2
+        print("Balance:", balance)
+        print("Demo connection test completed.")
 
-      - name: Verify BinaryOptionsToolsV2
-        run: |
-          python -c "from BinaryOptionsToolsV2.pocketoption.asynchronous import PocketOptionAsync; print('BinaryOptionsToolsV2 OK')"
 
-      - name: Test Demo connection
-        env:
-          POCKET_OPTION_SSID: ${{ secrets.POCKET_OPTION_SSID }}
-        run: |
-          python test_demo.py
+if __name__ == "__main__":
+    asyncio.run(main())
