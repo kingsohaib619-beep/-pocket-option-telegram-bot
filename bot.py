@@ -21,25 +21,162 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
 
 # =========================================================
+# Asset cache
+# =========================================================
+
+ASSET_CACHE = {}
+ASSET_CACHE_TIME = 0
+
+# تحديث قائمة الأصول كل 5 دقائق
+ASSET_CACHE_TTL = 300
+
+# عدد الأصول في كل صفحة Telegram
+ASSETS_PER_PAGE = 12
+
+
+# =========================================================
+# Get active assets
+# =========================================================
+
+async def load_active_assets():
+
+    global ASSET_CACHE
+    global ASSET_CACHE_TIME
+
+    now = asyncio.get_running_loop().time()
+
+    # استعمال الكاش إذا كان حديثًا
+    if ASSET_CACHE and (now - ASSET_CACHE_TIME) < ASSET_CACHE_TTL:
+        return ASSET_CACHE
+
+    try:
+
+        async with PocketOptionAsync(
+            ssid=POCKET_SSID
+        ) as client:
+
+            # جلب جميع الأصول
+            assets = await client.get_all_assets()
+
+        active_assets = {}
+
+        for asset in assets:
+
+            if not isinstance(asset, dict):
+                continue
+
+            symbol = asset.get("symbol")
+
+            if not symbol:
+                continue
+
+            # نأخذ فقط الأصول النشطة
+            if asset.get("is_active") is not True:
+                continue
+
+            allowed_candles = []
+
+            for candle in asset.get(
+                "allowed_candles",
+                []
+            ):
+
+                if isinstance(candle, dict):
+
+                    time_value = candle.get("time")
+
+                    if time_value:
+                        allowed_candles.append(
+                            int(time_value)
+                        )
+
+            active_assets[symbol] = {
+                "id": asset.get("id"),
+                "name": asset.get("name", symbol),
+                "symbol": symbol,
+                "is_otc": asset.get(
+                    "is_otc",
+                    False
+                ),
+                "is_active": True,
+                "payout": asset.get(
+                    "payout",
+                    0
+                ),
+                "asset_type": asset.get(
+                    "asset_type",
+                    "unknown"
+                ),
+                "allowed_candles": allowed_candles,
+            }
+
+        ASSET_CACHE = active_assets
+        ASSET_CACHE_TIME = now
+
+        print(
+            f"✅ Active assets loaded: "
+            f"{len(active_assets)}"
+        )
+
+        return active_assets
+
+    except Exception as e:
+
+        print(
+            "ASSET LOAD ERROR:",
+            type(e).__name__,
+            str(e)
+        )
+
+        # إذا كان لدينا كاش قديم، نستعمله
+        if ASSET_CACHE:
+            return ASSET_CACHE
+
+        raise
+
+
+# =========================================================
 # Main keyboard
 # =========================================================
 
 def main_keyboard():
+
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("💰 الرصيد", callback_data="balance"),
-            InlineKeyboardButton("📊 الحالة", callback_data="status"),
+            InlineKeyboardButton(
+                "💰 الرصيد",
+                callback_data="balance"
+            ),
+            InlineKeyboardButton(
+                "📊 الحالة",
+                callback_data="status"
+            ),
         ],
         [
-            InlineKeyboardButton("💱 اختيار الزوج", callback_data="pair"),
+            InlineKeyboardButton(
+                "💱 اختيار الأصل",
+                callback_data="pair"
+            ),
         ],
         [
-            InlineKeyboardButton("⏱ مدة الصفقة", callback_data="duration"),
-            InlineKeyboardButton("💵 المبلغ", callback_data="amount"),
+            InlineKeyboardButton(
+                "⏱ مدة الصفقة",
+                callback_data="duration"
+            ),
+            InlineKeyboardButton(
+                "💵 المبلغ",
+                callback_data="amount"
+            ),
         ],
         [
-            InlineKeyboardButton("🟢 BUY", callback_data="buy"),
-            InlineKeyboardButton("🔴 SELL", callback_data="sell"),
+            InlineKeyboardButton(
+                "🟢 BUY",
+                callback_data="buy"
+            ),
+            InlineKeyboardButton(
+                "🔴 SELL",
+                callback_data="sell"
+            ),
         ],
     ])
 
@@ -48,7 +185,10 @@ def main_keyboard():
 # Start
 # =========================================================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     context.user_data.clear()
 
@@ -64,25 +204,47 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Main menu
 # =========================================================
 
-async def show_main_menu(query, context):
+async def show_main_menu(
+    query,
+    context
+):
 
-    pair = context.user_data.get("pair", "غير محدد")
-    duration = context.user_data.get("duration", "غير محددة")
-    amount = context.user_data.get("amount", "غير محدد")
-    direction = context.user_data.get("direction")
+    pair = context.user_data.get(
+        "pair",
+        "غير محدد"
+    )
+
+    duration = context.user_data.get(
+        "duration",
+        "غير محددة"
+    )
+
+    amount = context.user_data.get(
+        "amount",
+        "غير محدد"
+    )
+
+    direction = context.user_data.get(
+        "direction"
+    )
 
     if direction == "buy":
+
         direction_text = "🟢 BUY"
+
     elif direction == "sell":
+
         direction_text = "🔴 SELL"
+
     else:
+
         direction_text = "غير محدد"
 
     await query.edit_message_text(
         "🤖 Pocket Option Demo Bot\n\n"
         "🧪 الحساب: DEMO\n\n"
         "📋 إعدادات الصفقة:\n"
-        f"💱 الزوج: {pair}\n"
+        f"💱 الأصل: {pair}\n"
         f"⏱ المدة: {duration} ثانية\n"
         f"💵 المبلغ: ${amount}\n"
         f"📈 الاتجاه: {direction_text}\n\n"
@@ -121,16 +283,19 @@ async def show_balance(query):
         ]
 
         await query.edit_message_text(
-            f"💰 Demo Balance\n\n"
+            "💰 Demo Balance\n\n"
             f"{balance}",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            )
         )
 
     except Exception as e:
 
         print(
-            f"Balance error: "
-            f"{type(e).__name__}: {e}"
+            "Balance error:",
+            type(e).__name__,
+            str(e)
         )
 
         await query.edit_message_text(
@@ -204,50 +369,168 @@ async def show_status(query):
 
 
 # =========================================================
-# Pair menu
+# Asset menu
 # =========================================================
 
-async def show_pair_menu(query, context):
+async def show_pair_menu(
+    query,
+    context,
+    page=0
+):
+
+    try:
+
+        assets = await load_active_assets()
+
+    except Exception as e:
+
+        await query.edit_message_text(
+            "❌ تعذر تحميل قائمة الأصول.\n\n"
+            f"الخطأ: {type(e).__name__}\n"
+            f"{str(e)}",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "⬅️ رجوع",
+                        callback_data="home"
+                    )
+                ]
+            ])
+        )
+
+        return
+
+    if not assets:
+
+        await query.edit_message_text(
+            "❌ لم يتم العثور على أصول نشطة.",
+            reply_markup=InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton(
+                        "⬅️ رجوع",
+                        callback_data="home"
+                    )
+                ]
+            ])
+        )
+
+        return
+
+    # ترتيب الأصول حسب الاسم
+    asset_list = sorted(
+        assets.values(),
+        key=lambda x: x.get(
+            "name",
+            x["symbol"]
+        ).lower()
+    )
+
+    total_pages = (
+        len(asset_list) + ASSETS_PER_PAGE - 1
+    ) // ASSETS_PER_PAGE
+
+    # حماية رقم الصفحة
+    if page < 0:
+        page = 0
+
+    if page >= total_pages:
+        page = total_pages - 1
+
+    start_index = (
+        page * ASSETS_PER_PAGE
+    )
+
+    end_index = (
+        start_index + ASSETS_PER_PAGE
+    )
+
+    current_assets = asset_list[
+        start_index:end_index
+    ]
+
+    keyboard = []
+
+    for asset in current_assets:
+
+        symbol = asset["symbol"]
+        name = asset["name"]
+        payout = asset.get("payout", 0)
+        is_otc = asset.get("is_otc", False)
+
+        otc_text = " OTC" if is_otc else ""
+
+        # اسم قصير للزر
+        button_text = (
+            f"{name}{otc_text}"
+        )
+
+        # Telegram لا يحب الأزرار الطويلة جدًا
+        if len(button_text) > 28:
+            button_text = (
+                f"{symbol} "
+                f"({payout}%)"
+            )
+
+        keyboard.append([
+            InlineKeyboardButton(
+                button_text,
+                callback_data=f"asset_{symbol}"
+            )
+        ])
+
+    # أزرار التنقل
+    navigation = []
+
+    if page > 0:
+
+        navigation.append(
+            InlineKeyboardButton(
+                "⬅️ السابق",
+                callback_data=f"assets_page_{page - 1}"
+            )
+        )
+
+    if page < total_pages - 1:
+
+        navigation.append(
+            InlineKeyboardButton(
+                "التالي ➡️",
+                callback_data=f"assets_page_{page + 1}"
+            )
+        )
+
+    if navigation:
+
+        keyboard.append(navigation)
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "🔄 تحديث القائمة",
+            callback_data="assets_refresh"
+        )
+    ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "🏠 الرئيسية",
+            callback_data="home"
+        )
+    ])
 
     current = context.user_data.get(
         "pair",
         "غير محدد"
     )
 
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "EUR/USD",
-                callback_data="pair_EURUSD"
-            ),
-            InlineKeyboardButton(
-                "GBP/USD",
-                callback_data="pair_GBPUSD"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "USD/JPY",
-                callback_data="pair_USDJPY"
-            ),
-            InlineKeyboardButton(
-                "AUD/USD",
-                callback_data="pair_AUDUSD"
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="home"
-            )
-        ],
-    ]
-
     await query.edit_message_text(
-        f"💱 اختيار الزوج\n\n"
-        f"الحالي: {current}\n\n"
-        "اختر الزوج:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        "💱 اختيار الأصل\n\n"
+        f"الأصل الحالي: {current}\n"
+        f"🟢 الأصول النشطة: {len(asset_list)}\n"
+        f"📄 الصفحة: {page + 1}/{total_pages}\n\n"
+        "اختر الأصل:",
+        reply_markup=InlineKeyboardMarkup(
+            keyboard
+        )
     )
 
 
@@ -255,7 +538,10 @@ async def show_pair_menu(query, context):
 # Duration menu
 # =========================================================
 
-async def show_duration_menu(query, context):
+async def show_duration_menu(
+    query,
+    context
+):
 
     current = context.user_data.get(
         "duration",
@@ -275,6 +561,16 @@ async def show_duration_menu(query, context):
         ],
         [
             InlineKeyboardButton(
+                "2 دقيقة",
+                callback_data="duration_120"
+            ),
+            InlineKeyboardButton(
+                "3 دقائق",
+                callback_data="duration_180"
+            ),
+        ],
+        [
+            InlineKeyboardButton(
                 "5 دقائق",
                 callback_data="duration_300"
             ),
@@ -288,10 +584,12 @@ async def show_duration_menu(query, context):
     ]
 
     await query.edit_message_text(
-        f"⏱ اختيار المدة\n\n"
+        "⏱ اختيار المدة\n\n"
         f"الحالية: {current} ثانية\n\n"
         "اختر المدة:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(
+            keyboard
+        )
     )
 
 
@@ -299,7 +597,10 @@ async def show_duration_menu(query, context):
 # Amount menu
 # =========================================================
 
-async def show_amount_menu(query, context):
+async def show_amount_menu(
+    query,
+    context
+):
 
     current = context.user_data.get(
         "amount",
@@ -336,10 +637,12 @@ async def show_amount_menu(query, context):
     ]
 
     await query.edit_message_text(
-        f"💵 اختيار المبلغ\n\n"
+        "💵 اختيار المبلغ\n\n"
         f"الحالي: ${current}\n\n"
         "اختر المبلغ:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(
+            keyboard
+        )
     )
 
 
@@ -347,7 +650,10 @@ async def show_amount_menu(query, context):
 # Confirmation
 # =========================================================
 
-async def show_trade_confirmation(query, context):
+async def show_trade_confirmation(
+    query,
+    context
+):
 
     pair = context.user_data.get("pair")
     duration = context.user_data.get("duration")
@@ -357,7 +663,7 @@ async def show_trade_confirmation(query, context):
     missing = []
 
     if not pair:
-        missing.append("💱 الزوج")
+        missing.append("💱 الأصل")
 
     if not duration:
         missing.append("⏱ المدة")
@@ -373,7 +679,7 @@ async def show_trade_confirmation(query, context):
         keyboard = [
             [
                 InlineKeyboardButton(
-                    "💱 الزوج",
+                    "💱 الأصل",
                     callback_data="pair"
                 ),
                 InlineKeyboardButton(
@@ -402,7 +708,9 @@ async def show_trade_confirmation(query, context):
                 f"• {item}"
                 for item in missing
             ),
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(
+                keyboard
+            )
         )
 
         return
@@ -434,14 +742,16 @@ async def show_trade_confirmation(query, context):
 
     await query.edit_message_text(
         "📋 تأكيد الصفقة\n\n"
-        f"💱 الزوج: {pair}\n"
+        f"💱 الأصل: {pair}\n"
         f"📈 الاتجاه: {direction_text}\n"
         f"💵 المبلغ: ${amount}\n"
         f"⏱ المدة: {duration} ثانية\n\n"
         "🧪 الحساب: DEMO\n\n"
         "⚠️ عند الضغط على تأكيد سيتم إرسال "
         "الأمر إلى حساب Demo.",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(
+            keyboard
+        )
     )
 
 
@@ -449,14 +759,22 @@ async def show_trade_confirmation(query, context):
 # Execute trade
 # =========================================================
 
-async def execute_trade(query, context):
+async def execute_trade(
+    query,
+    context
+):
 
     pair = context.user_data.get("pair")
     amount = context.user_data.get("amount")
     duration = context.user_data.get("duration")
     direction = context.user_data.get("direction")
 
-    if not pair or not amount or not duration or not direction:
+    if (
+        not pair
+        or not amount
+        or not duration
+        or not direction
+    ):
 
         await query.edit_message_text(
             "❌ معلومات الصفقة غير مكتملة.",
@@ -473,7 +791,7 @@ async def execute_trade(query, context):
         return
 
     await query.edit_message_text(
-        "⏳ جارٍ تنفيذ الصفقة...\n\n"
+        "⏳ جارٍ فحص الأصل وتنفيذ الصفقة...\n\n"
         f"💱 {pair}\n"
         f"💵 ${amount}\n"
         f"⏱ {duration} ثانية"
@@ -481,12 +799,82 @@ async def execute_trade(query, context):
 
     try:
 
+        # =====================================================
+        # التحقق من الأصل قبل فتح الصفقة
+        # =====================================================
+
+        assets = await load_active_assets()
+
+        asset_info = assets.get(pair)
+
+        if not asset_info:
+
+            await query.message.reply_text(
+                "❌ لا يمكن تنفيذ الصفقة.\n\n"
+                f"الأصل غير موجود في قائمة الأصول النشطة:\n"
+                f"`{pair}`",
+                parse_mode="Markdown"
+            )
+
+            return
+
+        if not asset_info.get("is_active"):
+
+            await query.message.reply_text(
+                "❌ الأصل غير نشط حاليًا.\n\n"
+                f"💱 {pair}"
+            )
+
+            return
+
+        # =====================================================
+        # التحقق من مدة الصفقة
+        # =====================================================
+
+        allowed_candles = asset_info.get(
+            "allowed_candles",
+            []
+        )
+
+        if (
+            allowed_candles
+            and int(duration) not in allowed_candles
+        ):
+
+            await query.message.reply_text(
+                "❌ مدة الصفقة غير مدعومة لهذا الأصل.\n\n"
+                f"💱 الأصل: {pair}\n"
+                f"⏱ المدة المطلوبة: {duration} ثانية\n\n"
+                "المدد المدعومة:\n"
+                + ", ".join(
+                    str(x)
+                    for x in allowed_candles
+                )
+            )
+
+            return
+
+        print("=" * 60)
+        print("TRADE PRE-CHECK")
+        print("NAME:", asset_info.get("name"))
+        print("SYMBOL:", asset_info.get("symbol"))
+        print("ACTIVE:", asset_info.get("is_active"))
+        print("PAYOUT:", asset_info.get("payout"))
+        print("OTC:", asset_info.get("is_otc"))
+        print("TYPE:", asset_info.get("asset_type"))
+        print("DURATION:", duration)
+        print("=" * 60)
+
+        # =====================================================
+        # Connect
+        # =====================================================
+
         async with PocketOptionAsync(
             ssid=POCKET_SSID
         ) as client:
 
-            # تأكد من الاتصال
             if not client.is_connected():
+
                 await client.connect()
 
             # =================================================
@@ -539,15 +927,17 @@ async def execute_trade(query, context):
                 "✅ تم فتح الصفقة\n\n"
                 f"🆔 Trade ID:\n"
                 f"{trade_id}\n\n"
-                f"💱 الزوج: {pair}\n"
+                f"💱 الأصل: {pair}\n"
                 f"📈 الاتجاه: {direction_text}\n"
                 f"💵 المبلغ: ${amount}\n"
                 f"⏱ المدة: {duration} ثانية\n\n"
+                f"💰 Payout: "
+                f"{asset_info.get('payout', 0)}%\n\n"
                 "⏳ ننتظر النتيجة..."
             )
 
             # =================================================
-            # Wait for expiration
+            # Wait
             # =================================================
 
             await asyncio.sleep(
@@ -592,7 +982,7 @@ async def execute_trade(query, context):
                     f"{result_emoji} نتيجة الصفقة\n\n"
                     f"🆔 Trade ID:\n"
                     f"{trade_id}\n\n"
-                    f"💱 الزوج: {pair}\n"
+                    f"💱 الأصل: {pair}\n"
                     f"📈 الاتجاه: {direction_text}\n"
                     f"💵 المبلغ: ${amount}\n\n"
                     f"📊 النتيجة: {result_label}\n\n"
@@ -615,10 +1005,6 @@ async def execute_trade(query, context):
                     f"الخطأ: "
                     f"{type(result_error).__name__}"
                 )
-
-    # =========================================================
-    # Trade error
-    # =========================================================
 
     except Exception as e:
 
@@ -683,24 +1069,85 @@ async def button_handler(
         )
 
     # =====================================================
-    # Pair
+    # Asset menu
     # =====================================================
 
     elif data == "pair":
 
         await show_pair_menu(
             query,
-            context
+            context,
+            page=0
         )
 
-    elif data.startswith("pair_"):
+    # =====================================================
+    # Asset pagination
+    # =====================================================
 
-        pair = data.replace(
-            "pair_",
-            ""
+    elif data.startswith("assets_page_"):
+
+        page = int(
+            data.replace(
+                "assets_page_",
+                ""
+            )
         )
 
-        context.user_data["pair"] = pair
+        await show_pair_menu(
+            query,
+            context,
+            page=page
+        )
+
+    # =====================================================
+    # Refresh assets
+    # =====================================================
+
+    elif data == "assets_refresh":
+
+        global ASSET_CACHE
+        global ASSET_CACHE_TIME
+
+        ASSET_CACHE = {}
+        ASSET_CACHE_TIME = 0
+
+        await show_pair_menu(
+            query,
+            context,
+            page=0
+        )
+
+    # =====================================================
+    # Select asset
+    # =====================================================
+
+    elif data.startswith("asset_"):
+
+        symbol = data[
+            len("asset_"):
+        ]
+
+        # فحص سريع من القائمة الحالية
+        assets = await load_active_assets()
+
+        asset_info = assets.get(symbol)
+
+        if not asset_info:
+
+            await query.answer(
+                "❌ الأصل غير نشط أو لم يعد متاحًا.",
+                show_alert=True
+            )
+
+            return
+
+        # حفظ الرمز الحقيقي
+        context.user_data["pair"] = symbol
+
+        print(
+            "SELECTED ASSET:",
+            symbol
+        )
 
         await show_main_menu(
             query,
