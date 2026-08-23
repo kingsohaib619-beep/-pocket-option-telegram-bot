@@ -1,9 +1,10 @@
 import os
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
+    CallbackQueryHandler,
     ContextTypes,
 )
 
@@ -15,27 +16,126 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [
+            InlineKeyboardButton("💰 الرصيد", callback_data="balance"),
+            InlineKeyboardButton("📊 الحالة", callback_data="status"),
+        ],
+        [
+            InlineKeyboardButton("💱 اختيار الزوج", callback_data="pair"),
+        ],
+        [
+            InlineKeyboardButton("⏱ مدة الصفقة", callback_data="duration"),
+            InlineKeyboardButton("💵 المبلغ", callback_data="amount"),
+        ],
+        [
+            InlineKeyboardButton("🟢 BUY", callback_data="buy"),
+            InlineKeyboardButton("🔴 SELL", callback_data="sell"),
+        ],
+    ]
+
     await update.message.reply_text(
         "🤖 Pocket Option Demo Bot\n\n"
-        "🟢 الحالة: متصل\n"
-        "🧪 الحساب: DEMO\n\n"
-        "استخدم /balance لمعرفة الرصيد."
+        "🟢 الحساب: DEMO\n"
+        "اختر العملية:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
 async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
     try:
         async with PocketOptionAsync(ssid=POCKET_SSID) as client:
             balance = await client.balance()
 
-        await update.message.reply_text(
+        await query.message.reply_text(
             f"💰 Demo Balance\n\n{balance}"
         )
 
     except Exception as e:
         print(f"Balance error: {type(e).__name__}: {e}")
-        await update.message.reply_text(
-            f"❌ حدث خطأ:\n{type(e).__name__}"
+        await query.message.reply_text(
+            f"❌ خطأ: {type(e).__name__}"
+        )
+
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "balance":
+        await balance(update, context)
+
+    elif query.data == "status":
+        await query.message.reply_text(
+            "🟢 Bot: Online\n"
+            "🟢 Pocket Option: Connected\n"
+            "🧪 Account: DEMO"
+        )
+
+    elif query.data == "pair":
+        keyboard = [
+            [
+                InlineKeyboardButton("EUR/USD", callback_data="pair_EURUSD"),
+                InlineKeyboardButton("GBP/USD", callback_data="pair_GBPUSD"),
+            ],
+            [
+                InlineKeyboardButton("USD/JPY", callback_data="pair_USDJPY"),
+                InlineKeyboardButton("AUD/USD", callback_data="pair_AUDUSD"),
+            ],
+        ]
+
+        await query.message.reply_text(
+            "💱 اختر الزوج:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    elif query.data.startswith("pair_"):
+        pair = query.data.replace("pair_", "")
+        context.user_data["pair"] = pair
+
+        await query.message.reply_text(
+            f"✅ تم اختيار الزوج: {pair}\n\n"
+            "⚠️ لم يتم تنفيذ أي صفقة."
+        )
+
+    elif query.data == "duration":
+        keyboard = [
+            [
+                InlineKeyboardButton("30 ثانية", callback_data="duration_30"),
+                InlineKeyboardButton("1 دقيقة", callback_data="duration_60"),
+            ],
+            [
+                InlineKeyboardButton("5 دقائق", callback_data="duration_300"),
+            ],
+        ]
+
+        await query.message.reply_text(
+            "⏱ اختر المدة:",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    elif query.data.startswith("duration_"):
+        duration = int(query.data.replace("duration_", ""))
+        context.user_data["duration"] = duration
+
+        await query.message.reply_text(
+            f"✅ المدة: {duration} ثانية\n\n"
+            "⚠️ لم يتم تنفيذ أي صفقة."
+        )
+
+    elif query.data == "amount":
+        await query.message.reply_text(
+            "💵 المبلغ غير قابل للتنفيذ حاليًا.\n\n"
+            "سنضيف اختيار المبلغ في الخطوة التالية."
+        )
+
+    elif query.data in ("buy", "sell"):
+        await query.message.reply_text(
+            "⚠️ BUY/SELL غير مفعّلين حاليًا.\n\n"
+            "هذه المرحلة للاختبار فقط، ولن يتم فتح أي صفقة."
         )
 
 
@@ -55,7 +155,7 @@ def main():
     )
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("balance", balance))
+    app.add_handler(CallbackQueryHandler(button_handler))
 
     print("Telegram bot started...")
     app.run_polling()
