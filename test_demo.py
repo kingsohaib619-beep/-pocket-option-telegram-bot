@@ -1,10 +1,7 @@
 import asyncio
 import os
-import sys
 
-sys.path.insert(0, "vendor")
-
-from BinaryOptionsToolsV2.pocketoption.asynchronous import PocketOptionAsync
+from BinaryOptionsToolsV2 import PocketOptionAsync
 
 
 async def main():
@@ -16,8 +13,8 @@ async def main():
         print("Connected successfully.")
 
         balance = await client.balance()
-        print("Balance:", balance)
 
+        print("Balance:", balance)
         print("Demo connection test completed.")
 
 
