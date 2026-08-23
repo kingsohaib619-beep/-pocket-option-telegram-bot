@@ -579,12 +579,18 @@ async def execute_trade(query, context):
                 )
 
     except Exception as e:
+    print("=" * 60)
+    print("TRADE ERROR")
+    print("TYPE:", type(e).__name__)
+    print("MESSAGE:", str(e))
+    print("REPR:", repr(e))
+    print("=" * 60)
 
-        print(
-            "TRADE ERROR:",
-            type(e).__name__,
-            e
-        )
+    await query.message.reply_text(
+        "❌ فشل تنفيذ الصفقة.\n\n"
+        f"نوع الخطأ:\n{type(e).__name__}\n\n"
+        f"التفاصيل:\n{str(e)}"
+    )
 
         await query.message.reply_text(
             "❌ فشل تنفيذ الصفقة.\n\n"
