@@ -1,0 +1,52 @@
+name: Sync A11ksa Pocket Option Library
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout my repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone A11ksa library
+        run: |
+          git clone https://github.com/A11ksa/API-Pocket-Option.git /tmp/a11ksa
+
+      - name: Copy library files
+        run: |
+          rm -rf api_pocket
+          cp -R /tmp/a11ksa/api_pocket ./api_pocket
+
+          if [ -f /tmp/a11ksa/requirements.txt ]; then
+            cp /tmp/a11ksa/requirements.txt ./requirements.txt
+          fi
+
+          if [ -f /tmp/a11ksa/setup.py ]; then
+            cp /tmp/a11ksa/setup.py ./setup.py
+          fi
+
+          if [ -f /tmp/a11ksa/pyproject.toml ]; then
+            cp /tmp/a11ksa/pyproject.toml ./pyproject.toml
+          fi
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add api_pocket requirements.txt setup.py pyproject.toml
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Sync A11ksa Pocket Option library"
+            git push
+          fi
