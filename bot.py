@@ -1,5 +1,4 @@
 import os
-import asyncio
 
 from telegram import Update
 from telegram.ext import (
@@ -18,8 +17,8 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Pocket Option Demo Bot\n\n"
-        "الحالة: متصل\n"
-        "الحساب: DEMO\n\n"
+        "🟢 الحالة: متصل\n"
+        "🧪 الحساب: DEMO\n\n"
         "استخدم /balance لمعرفة الرصيد."
     )
 
@@ -30,11 +29,11 @@ async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             balance = await client.balance()
 
         await update.message.reply_text(
-            f"💰 Demo Balance\n\n"
-            f"{balance}"
+            f"💰 Demo Balance\n\n{balance}"
         )
 
     except Exception as e:
+        print(f"Balance error: {type(e).__name__}: {e}")
         await update.message.reply_text(
             f"❌ حدث خطأ:\n{type(e).__name__}"
         )
