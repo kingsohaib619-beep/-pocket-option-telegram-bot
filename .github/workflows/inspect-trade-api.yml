@@ -31,14 +31,105 @@ jobs:
           print(PocketOptionAsync)
 
           print("\n=== METHODS ===")
+
           for name in dir(PocketOptionAsync):
+
               if not name.startswith("_"):
+
                   try:
-                      obj = getattr(PocketOptionAsync, name)
+
+                      obj = getattr(
+                          PocketOptionAsync,
+                          name
+                      )
+
                       if callable(obj):
-                          print(name, inspect.signature(obj))
+
+                          print(
+                              name,
+                              inspect.signature(obj)
+                          )
+
                       else:
-                          print(name, type(obj).__name__)
+
+                          print(
+                              name,
+                              type(obj).__name__
+                          )
+
                   except Exception:
+
                       print(name)
+
+          PY
+
+      - name: Test active_assets
+        env:
+          POCKET_OPTION_SSID: ${{ secrets.POCKET_OPTION_SSID }}
+        run: |
+          python - <<'PY'
+          import asyncio
+          import os
+
+          from BinaryOptionsToolsV2 import PocketOptionAsync
+
+
+          async def main():
+
+              ssid = os.environ["POCKET_OPTION_SSID"]
+
+              print("================================")
+              print("CONNECTING TO POCKET OPTION")
+              print("================================")
+
+              async with PocketOptionAsync(
+                  ssid=ssid
+              ) as client:
+
+                  print("Connected:",
+                        client.is_connected())
+
+                  print("Demo:",
+                        client.is_demo())
+
+                  print("SSID valid:",
+                        client.is_ssid_valid())
+
+                  print()
+                  print("Waiting for assets...")
+
+                  await client.wait_for_assets()
+
+                  print()
+                  print("================================")
+                  print("ACTIVE ASSETS")
+                  print("================================")
+
+                  assets = await client.active_assets()
+
+                  print(
+                      "TYPE:",
+                      type(assets)
+                  )
+
+                  print(
+                      "COUNT:",
+                      len(assets)
+                  )
+
+                  print()
+
+                  for index, asset in enumerate(
+                      assets,
+                      start=1
+                  ):
+
+                      print(
+                          f"{index}:",
+                          asset
+                      )
+
+
+          asyncio.run(main())
+
           PY
