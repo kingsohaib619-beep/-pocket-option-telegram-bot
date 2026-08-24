@@ -1,12 +1,14 @@
 import os
 import asyncio
+import time
+from typing import Dict, Any, Optional
 
 from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -18,7 +20,7 @@ from BinaryOptionsToolsV2 import PocketOptionAsync
 
 
 # =========================================================
-# Environment
+# ENVIRONMENT
 # =========================================================
 
 POCKET_SSID = os.environ["POCKET_OPTION_SSID"]
@@ -26,19 +28,11 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
 
 # =========================================================
-# Asset cache
+# CONFIG
 # =========================================================
-
-ASSET_CACHE = {}
-ASSET_CACHE_TIME = 0
 
 ASSET_CACHE_TTL = 300
 ASSETS_PER_PAGE = 12
-
-
-# =========================================================
-# Default durations
-# =========================================================
 
 DEFAULT_DURATIONS = [
     30,
@@ -58,7 +52,71 @@ DEFAULT_DURATIONS = [
 
 
 # =========================================================
-# Duration text
+# GLOBAL CACHE
+# =========================================================
+
+ASSET_CACHE: Dict[str, Dict[str, Any]] = {}
+ASSET_CACHE_TIME = 0.0
+
+ASSET_LOCK = asyncio.Lock()
+
+# منع تنفيذ أكثر من صفقة في نفس الوقت للمستخدم
+TRADE_LOCKS: Dict[int, asyncio.Lock] = {}
+
+
+# =========================================================
+# SAFE TELEGRAM EDIT
+# =========================================================
+
+async def safe_edit(
+    query,
+    text: str,
+    reply_markup=None
+):
+    """
+    يمنع:
+    BadRequest: Message is not modified
+    """
+
+    try:
+
+        await query.edit_message_text(
+            text=text,
+            reply_markup=reply_markup,
+        )
+
+    except BadRequest as e:
+
+        if "Message is not modified" in str(e):
+
+            return
+
+        raise
+
+
+# =========================================================
+# SAFE ANSWER
+# =========================================================
+
+async def safe_answer(
+    query,
+    text: Optional[str] = None,
+    show_alert: bool = False
+):
+
+    try:
+
+        await query.answer(
+            text=text,
+            show_alert=show_alert,
+        )
+
+    except Exception:
+        pass
+
+
+# =========================================================
+# DURATION TEXT
 # =========================================================
 
 def duration_text(seconds):
@@ -66,9 +124,11 @@ def duration_text(seconds):
     seconds = int(seconds)
 
     if seconds < 60:
+
         return f"{seconds} ثانية"
 
     if seconds == 60:
+
         return "1 دقيقة"
 
     if seconds < 3600:
@@ -84,61 +144,65 @@ def duration_text(seconds):
         if minutes == 3:
             return "3 دقائق"
 
-        if minutes == 10:
-            return "10 دقائق"
+        if minutes in (10, 15, 30, 45):
 
-        if minutes == 15:
-            return "15 دقيقة"
-
-        if minutes == 30:
-            return "30 دقيقة"
-
-        if minutes == 45:
-            return "45 دقيقة"
+            return f"{minutes} دقيقة"
 
         return f"{minutes} دقيقة"
 
     hours = seconds // 3600
 
     if hours == 1:
+
         return "1 ساعة"
 
     if hours == 2:
+
         return "2 ساعة"
 
     if hours == 3:
+
         return "3 ساعات"
 
     return f"{hours} ساعة"
 
 
 # =========================================================
-# Format saved settings
+# FORMAT NUMBER
+# =========================================================
+
+def money(value):
+
+    try:
+
+        value = float(value)
+
+        if value.is_integer():
+
+            return f"${int(value)}"
+
+        return f"${value:.2f}"
+
+    except Exception:
+
+        return f"${value}"
+
+
+# =========================================================
+# USER SETTINGS
 # =========================================================
 
 def get_saved_settings(context):
 
-    pair = context.user_data.get(
-        "pair"
-    )
+    pair = context.user_data.get("pair")
 
-    duration = context.user_data.get(
-        "duration"
-    )
+    duration = context.user_data.get("duration")
 
-    amount = context.user_data.get(
-        "amount"
-    )
+    amount = context.user_data.get("amount")
 
-    direction = context.user_data.get(
-        "direction"
-    )
+    direction = context.user_data.get("direction")
 
-    pair_text = (
-        pair
-        if pair
-        else "غير محدد"
-    )
+    pair_text = pair or "غير محدد"
 
     duration_value = (
         duration_text(duration)
@@ -147,7 +211,7 @@ def get_saved_settings(context):
     )
 
     amount_text = (
-        f"${amount}"
+        money(amount)
         if amount is not None
         else "غير محدد"
     )
@@ -173,7 +237,7 @@ def get_saved_settings(context):
 
 
 # =========================================================
-# Main keyboard
+# MAIN UI
 # =========================================================
 
 def main_keyboard():
@@ -183,43 +247,43 @@ def main_keyboard():
         [
             InlineKeyboardButton(
                 "💰 الرصيد",
-                callback_data="balance"
+                callback_data="balance",
             ),
 
             InlineKeyboardButton(
-                "📊 الحالة",
-                callback_data="status"
+                "📡 الحالة",
+                callback_data="status",
             ),
         ],
 
         [
             InlineKeyboardButton(
                 "💱 اختيار الأصل",
-                callback_data="pair"
+                callback_data="pair",
             ),
         ],
 
         [
             InlineKeyboardButton(
-                "⏱ مدة الصفقة",
-                callback_data="duration"
+                "⏱ المدة",
+                callback_data="duration",
             ),
 
             InlineKeyboardButton(
                 "💵 المبلغ",
-                callback_data="amount"
+                callback_data="amount",
             ),
         ],
 
         [
             InlineKeyboardButton(
                 "🟢 BUY",
-                callback_data="buy"
+                callback_data="buy",
             ),
 
             InlineKeyboardButton(
                 "🔴 SELL",
-                callback_data="sell"
+                callback_data="sell",
             ),
         ],
 
@@ -227,128 +291,321 @@ def main_keyboard():
 
 
 # =========================================================
-# Load active assets
+# HOME TEXT
+# =========================================================
+
+def home_text(context):
+
+    pair, duration, amount, direction = (
+        get_saved_settings(context)
+    )
+
+    return (
+        "╭━━━━━━━━━━━━━━━━━━╮\n"
+        "   🤖 POCKET OPTION BOT\n"
+        "╰━━━━━━━━━━━━━━━━━━╯\n\n"
+
+        "🧪 الحساب: `DEMO`\n"
+        "🟢 النظام: جاهز\n\n"
+
+        "┌─ 📋 إعدادات الصفقة\n"
+        f"├ 💱 الأصل: {pair}\n"
+        f"├ ⏱ المدة: {duration}\n"
+        f"├ 💵 المبلغ: {amount}\n"
+        f"└ 📈 الاتجاه: {direction}\n\n"
+
+        "اختر العملية من القائمة 👇"
+    )
+
+
+# =========================================================
+# START
+# =========================================================
+
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
+
+    context.user_data.clear()
+
+    await update.message.reply_text(
+
+        home_text(context),
+
+        parse_mode="Markdown",
+
+        reply_markup=main_keyboard(),
+    )
+
+
+# =========================================================
+# SHOW HOME
+# =========================================================
+
+async def show_main_menu(
+    query,
+    context,
+):
+
+    await safe_edit(
+
+        query,
+
+        home_text(context),
+
+        main_keyboard(),
+    )
+
+
+# =========================================================
+# POCKET CLIENT
+# =========================================================
+
+async def create_client():
+
+    client = PocketOptionAsync(
+        ssid=POCKET_SSID
+    )
+
+    try:
+
+        if not client.is_connected():
+
+            await client.connect()
+
+        return client
+
+    except Exception:
+
+        try:
+
+            await client.close()
+
+        except Exception:
+
+            pass
+
+        raise
+
+
+# =========================================================
+# LOAD ACTIVE ASSETS
 #
+# IMPORTANT:
 # BinaryOptionsToolsV2 0.2.13
 # uses active_assets()
 #
-# NOT get_all_assets()
+# NEVER get_all_assets()
 # =========================================================
 
-async def load_active_assets():
+async def load_active_assets(
+    force=False
+):
 
     global ASSET_CACHE
     global ASSET_CACHE_TIME
 
-    now = asyncio.get_running_loop().time()
+    now = time.monotonic()
 
     # -----------------------------------------------------
-    # Cache
+    # FAST CACHE
     # -----------------------------------------------------
 
     if (
-        ASSET_CACHE
-        and
-        (now - ASSET_CACHE_TIME)
-        < ASSET_CACHE_TTL
+        not force
+        and ASSET_CACHE
+        and (now - ASSET_CACHE_TIME) < ASSET_CACHE_TTL
     ):
 
         return ASSET_CACHE
 
-    try:
+    # -----------------------------------------------------
+    # Prevent simultaneous loading
+    # -----------------------------------------------------
+
+    async with ASSET_LOCK:
+
+        now = time.monotonic()
+
+        if (
+            not force
+            and ASSET_CACHE
+            and (now - ASSET_CACHE_TIME) < ASSET_CACHE_TTL
+        ):
+
+            return ASSET_CACHE
 
         print("=" * 60)
         print("LOADING ACTIVE ASSETS")
         print("=" * 60)
 
-        async with PocketOptionAsync(
-            ssid=POCKET_SSID
-        ) as client:
+        try:
 
-            if not client.is_connected():
+            async with PocketOptionAsync(
+                ssid=POCKET_SSID
+            ) as client:
 
-                await client.connect()
+                if not client.is_connected():
 
-            await client.wait_for_assets()
+                    await client.connect()
 
-            assets = await client.active_assets()
+                # -------------------------------------------------
+                # Wait for asset information
+                # -------------------------------------------------
 
-        print(
-            "ACTIVE ASSETS TYPE:",
-            type(assets)
-        )
+                try:
 
-        print(
-            "ACTIVE ASSETS COUNT:",
-            len(assets)
-        )
+                    await client.wait_for_assets()
 
-        active_assets = {}
+                except Exception as wait_error:
 
-        # =================================================
-        # Parse assets
-        # =================================================
+                    print(
+                        "WAIT FOR ASSETS WARNING:",
+                        type(wait_error).__name__,
+                        str(wait_error)
+                    )
 
-        for asset in assets:
+                # -------------------------------------------------
+                # CRITICAL:
+                # Use active_assets()
+                # -------------------------------------------------
 
-            if not isinstance(
-                asset,
-                dict
-            ):
-                continue
+                active_assets_method = getattr(
+                    client,
+                    "active_assets",
+                    None
+                )
 
-            symbol = asset.get(
-                "symbol"
+                if not callable(
+                    active_assets_method
+                ):
+
+                    raise RuntimeError(
+                        "BinaryOptionsToolsV2 لا يحتوي "
+                        "على active_assets(). "
+                        "تأكد من تثبيت BinaryOptionsToolsV2==0.2.13."
+                    )
+
+                assets = await active_assets_method()
+
+            print(
+                "ACTIVE ASSETS TYPE:",
+                type(assets)
             )
 
-            if not symbol:
-                continue
+            if assets is None:
 
-            # -------------------------------------------------
-            # Active
-            # -------------------------------------------------
+                assets = []
 
-            is_active = asset.get(
-                "is_active",
-                True
+            print(
+                "ACTIVE ASSETS COUNT:",
+                len(assets)
             )
 
-            if is_active is not True:
-                continue
+            normalized = {}
 
-            # -------------------------------------------------
-            # Allowed candles
-            # -------------------------------------------------
+            # =================================================
+            # PARSE
+            # =================================================
 
-            allowed_candles = []
+            if isinstance(assets, dict):
 
-            candles = asset.get(
-                "allowed_candles",
-                []
-            )
+                iterable = assets.values()
 
-            if isinstance(
-                candles,
-                list
-            ):
+            elif isinstance(assets, list):
 
-                for candle in candles:
+                iterable = assets
 
-                    if isinstance(
-                        candle,
-                        dict
-                    ):
+            else:
 
-                        time_value = candle.get(
-                            "time"
-                        )
+                iterable = []
 
-                        if time_value is not None:
+            for asset in iterable:
+
+                if not isinstance(
+                    asset,
+                    dict
+                ):
+
+                    continue
+
+                # -------------------------------------------------
+                # Symbol
+                # -------------------------------------------------
+
+                symbol = (
+                    asset.get("symbol")
+                    or asset.get("asset")
+                    or asset.get("name")
+                )
+
+                if not symbol:
+
+                    continue
+
+                symbol = str(symbol)
+
+                # -------------------------------------------------
+                # Active
+                # -------------------------------------------------
+
+                is_active = asset.get(
+                    "is_active",
+                    asset.get(
+                        "active",
+                        True
+                    )
+                )
+
+                if is_active is False:
+
+                    continue
+
+                # -------------------------------------------------
+                # Candles
+                # -------------------------------------------------
+
+                allowed_candles = []
+
+                candles = asset.get(
+                    "allowed_candles",
+                    []
+                )
+
+                if isinstance(
+                    candles,
+                    (list, tuple)
+                ):
+
+                    for candle in candles:
+
+                        value = None
+
+                        if isinstance(
+                            candle,
+                            dict
+                        ):
+
+                            value = (
+                                candle.get("time")
+                                or candle.get("duration")
+                                or candle.get("seconds")
+                            )
+
+                        elif isinstance(
+                            candle,
+                            (int, float)
+                        ):
+
+                            value = candle
+
+                        if value is not None:
 
                             try:
 
                                 allowed_candles.append(
-                                    int(time_value)
+                                    int(value)
                                 )
 
                             except (
@@ -358,131 +615,156 @@ async def load_active_assets():
 
                                 pass
 
-                    elif isinstance(
-                        candle,
-                        (int, float)
-                    ):
-
-                        try:
-
-                            allowed_candles.append(
-                                int(candle)
-                            )
-
-                        except (
-                            TypeError,
-                            ValueError
-                        ):
-
-                            pass
-
-            allowed_candles = sorted(
-                set(
-                    allowed_candles
-                )
-            )
-
-            # -------------------------------------------------
-            # Normalize
-            # -------------------------------------------------
-
-            active_assets[symbol] = {
-
-                "id": asset.get(
-                    "id"
-                ),
-
-                "name": asset.get(
-                    "name",
-                    symbol
-                ),
-
-                "symbol": symbol,
-
-                "is_otc": bool(
-                    asset.get(
-                        "is_otc",
-                        False
+                allowed_candles = sorted(
+                    set(
+                        allowed_candles
                     )
-                ),
-
-                "is_active": True,
-
-                "payout": asset.get(
-                    "payout",
-                    0
-                ),
-
-                "asset_type": asset.get(
-                    "asset_type",
-                    "unknown"
-                ),
-
-                "allowed_candles":
-                    allowed_candles,
-            }
-
-        ASSET_CACHE = active_assets
-        ASSET_CACHE_TIME = now
-
-        print(
-            f"✅ Active assets loaded: "
-            f"{len(active_assets)}"
-        )
-
-        # Debug
-        if "AUDCHF" in active_assets:
-
-            print(
-                "AUDCHF DURATIONS:",
-                active_assets[
-                    "AUDCHF"
-                ].get(
-                    "allowed_candles",
-                    []
                 )
-            )
 
-        print("=" * 60)
+                # -------------------------------------------------
+                # Normalize
+                # -------------------------------------------------
 
-        return active_assets
+                normalized[symbol] = {
 
-    except Exception as e:
+                    "id": asset.get("id"),
 
-        print("=" * 60)
+                    "name": asset.get(
+                        "name",
+                        symbol
+                    ),
 
-        print(
-            "ASSET LOAD ERROR"
-        )
+                    "symbol": symbol,
 
-        print(
-            "TYPE:",
-            type(e).__name__
-        )
+                    "is_otc": bool(
+                        asset.get(
+                            "is_otc",
+                            False
+                        )
+                    ),
 
-        print(
-            "MESSAGE:",
-            str(e)
-        )
+                    "is_active": True,
 
-        print("=" * 60)
+                    "payout": asset.get(
+                        "payout",
+                        0
+                    ),
 
-        if ASSET_CACHE:
+                    "asset_type": asset.get(
+                        "asset_type",
+                        "unknown"
+                    ),
+
+                    "allowed_candles":
+                        allowed_candles,
+                }
+
+            # -------------------------------------------------
+            # Save cache
+            # -------------------------------------------------
+
+            if normalized:
+
+                ASSET_CACHE = normalized
+
+                ASSET_CACHE_TIME = (
+                    time.monotonic()
+                )
 
             print(
-                "⚠️ Using old asset cache"
+                f"✅ Active assets loaded: "
+                f"{len(ASSET_CACHE)}"
             )
+
+            print("=" * 60)
 
             return ASSET_CACHE
 
-        raise
+        except Exception as e:
+
+            print("=" * 60)
+
+            print(
+                "ASSET LOAD ERROR"
+            )
+
+            print(
+                "TYPE:",
+                type(e).__name__
+            )
+
+            print(
+                "MESSAGE:",
+                str(e)
+            )
+
+            print("=" * 60)
+
+            # -------------------------------------------------
+            # Use old cache if available
+            # -------------------------------------------------
+
+            if ASSET_CACHE:
+
+                print(
+                    "⚠️ Using previous asset cache"
+                )
+
+                return ASSET_CACHE
+
+            raise
 
 
 # =========================================================
-# Get asset durations
+# BACKGROUND ASSET PRELOAD
 # =========================================================
 
-async def get_asset_durations(pair):
+async def preload_assets(
+    application: Application
+):
+
+    try:
+
+        print("🚀 Preloading assets...")
+
+        assets = await load_active_assets(
+            force=True
+        )
+
+        print(
+            f"✅ Asset preload complete: "
+            f"{len(assets)} assets"
+        )
+
+    except Exception as e:
+
+        print(
+            "⚠️ Asset preload failed:",
+            type(e).__name__,
+            str(e)
+        )
+
+
+# =========================================================
+# POST INIT
+# =========================================================
+
+async def post_init(
+    application: Application
+):
+
+    await preload_assets(
+        application
+    )
+
+
+# =========================================================
+# GET ASSET DURATIONS
+# =========================================================
+
+async def get_asset_durations(
+    pair
+):
 
     if not pair:
 
@@ -492,9 +774,7 @@ async def get_asset_durations(pair):
 
         assets = await load_active_assets()
 
-        asset_info = assets.get(
-            pair
-        )
+        asset_info = assets.get(pair)
 
         if not asset_info:
 
@@ -530,89 +810,21 @@ async def get_asset_durations(pair):
 
 
 # =========================================================
-# Start
-# =========================================================
-
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    # فقط /start يمسح الإعدادات القديمة
-    context.user_data.clear()
-
-    await update.message.reply_text(
-
-        "🤖 Pocket Option Demo Bot\n\n"
-
-        "🧪 الحساب: DEMO\n\n"
-
-        "📋 إعدادات الصفقة:\n"
-
-        "💱 الأصل: غير محدد\n"
-
-        "⏱ المدة: غير محددة\n"
-
-        "💵 المبلغ: غير محدد\n"
-
-        "📈 الاتجاه: غير محدد\n\n"
-
-        "اختر العملية:",
-
-        reply_markup=main_keyboard(),
-    )
-
-
-# =========================================================
-# Main menu
-# IMPORTANT:
-# This function NEVER clears user_data
-# =========================================================
-
-async def show_main_menu(
-    query,
-    context
-):
-
-    (
-        pair,
-        duration,
-        amount,
-        direction
-    ) = get_saved_settings(
-        context
-    )
-
-    await query.edit_message_text(
-
-        "🤖 Pocket Option Demo Bot\n\n"
-
-        "🧪 الحساب: DEMO\n\n"
-
-        "📋 إعدادات الصفقة:\n"
-
-        f"💱 الأصل: {pair}\n"
-
-        f"⏱ المدة: {duration}\n"
-
-        f"💵 المبلغ: {amount}\n"
-
-        f"📈 الاتجاه: {direction}\n\n"
-
-        "اختر العملية:",
-
-        reply_markup=main_keyboard(),
-    )
-
-
-# =========================================================
-# Balance
+# BALANCE
 # =========================================================
 
 async def show_balance(
     query,
-    context
+    context,
 ):
+
+    await safe_edit(
+
+        query,
+
+        "⏳ جاري تحميل الرصيد...\n\n"
+        "⚡ لحظة واحدة..."
+    )
 
     try:
 
@@ -626,72 +838,86 @@ async def show_balance(
 
             balance = await client.balance()
 
-        keyboard = [
+        keyboard = InlineKeyboardMarkup([
 
             [
                 InlineKeyboardButton(
                     "🔄 تحديث",
-                    callback_data="balance"
-                )
+                    callback_data="balance",
+                ),
             ],
 
             [
                 InlineKeyboardButton(
                     "🏠 الرئيسية",
-                    callback_data="home"
-                )
+                    callback_data="home",
+                ),
             ],
 
-        ]
+        ])
 
-        await query.edit_message_text(
+        await safe_edit(
 
-            "💰 Demo Balance\n\n"
+            query,
 
-            f"الرصيد: {balance}\n\n"
+            "╭━━━━━━━━━━━━━━━━━━╮\n"
+            "       💰 BALANCE\n"
+            "╰━━━━━━━━━━━━━━━━━━╯\n\n"
 
-            "📋 إعداداتك محفوظة.",
+            f"💵 الرصيد:\n"
+            f"   {balance}\n\n"
 
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            )
+            "🧪 الحساب: DEMO\n"
+            "🟢 الاتصال: نشط",
+
+            keyboard,
         )
 
     except Exception as e:
 
-        print(
-            "BALANCE ERROR:",
-            type(e).__name__,
-            str(e)
-        )
+        await safe_edit(
 
-        await query.edit_message_text(
+            query,
 
             "❌ تعذر الحصول على الرصيد.\n\n"
 
-            f"الخطأ: {type(e).__name__}",
+            f"الخطأ: `{type(e).__name__}`",
 
-            reply_markup=InlineKeyboardMarkup([
+            InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "🔄 إعادة المحاولة",
+                        callback_data="balance",
+                    )
+                ],
 
                 [
                     InlineKeyboardButton(
                         "🏠 الرئيسية",
-                        callback_data="home"
+                        callback_data="home",
                     )
-                ]
+                ],
 
-            ])
+            ]),
         )
 
 
 # =========================================================
-# Status
+# STATUS
 # =========================================================
 
 async def show_status(
     query,
-    context
+    context,
 ):
+
+    await safe_edit(
+
+        query,
+
+        "⏳ فحص الاتصال..."
+    )
 
     try:
 
@@ -707,75 +933,100 @@ async def show_status(
                 client.is_connected()
             )
 
-            demo = client.is_demo()
+            try:
 
-            ssid_valid = (
-                client.is_ssid_valid()
-            )
+                demo = client.is_demo()
 
-        await query.edit_message_text(
+            except Exception:
 
-            "📊 حالة الاتصال\n\n"
+                demo = True
+
+            try:
+
+                ssid_valid = (
+                    client.is_ssid_valid()
+                )
+
+            except Exception:
+
+                ssid_valid = True
+
+        await safe_edit(
+
+            query,
+
+            "╭━━━━━━━━━━━━━━━━━━╮\n"
+            "       📡 STATUS\n"
+            "╰━━━━━━━━━━━━━━━━━━╯\n\n"
 
             f"🔌 الاتصال: "
-            f"{'🟢 متصل' if connected else '🔴 غير متصل'}\n"
+            f"{'🟢 متصل' if connected else '🔴 غير متصل'}\n\n"
 
-            f"🧪 الحساب Demo: "
-            f"{'🟢 نعم' if demo else '🔴 لا'}\n"
+            f"🧪 Demo: "
+            f"{'🟢 نعم' if demo else '🔴 لا'}\n\n"
 
             f"🔐 SSID: "
             f"{'🟢 صالح' if ssid_valid else '🔴 غير صالح'}\n\n"
 
-            "📋 إعدادات الصفقة محفوظة.",
+            f"💱 الأصول في الذاكرة: "
+            f"{len(ASSET_CACHE)}",
 
-            reply_markup=InlineKeyboardMarkup([
+            InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "🔄 فحص مرة أخرى",
+                        callback_data="status",
+                    )
+                ],
 
                 [
                     InlineKeyboardButton(
                         "🏠 الرئيسية",
-                        callback_data="home"
+                        callback_data="home",
                     )
-                ]
+                ],
 
-            ])
+            ]),
         )
 
     except Exception as e:
 
-        print(
-            "STATUS ERROR:",
-            type(e).__name__,
-            str(e)
-        )
+        await safe_edit(
 
-        await query.edit_message_text(
+            query,
 
-            "❌ خطأ في الاتصال:\n\n"
+            "🔴 فشل فحص الاتصال\n\n"
 
-            f"{type(e).__name__}",
+            f"`{type(e).__name__}`\n"
+            f"{str(e)}",
 
-            reply_markup=InlineKeyboardMarkup([
+            InlineKeyboardMarkup([
 
                 [
                     InlineKeyboardButton(
                         "🏠 الرئيسية",
-                        callback_data="home"
+                        callback_data="home",
                     )
-                ]
+                ],
 
-            ])
+            ]),
         )
 
 
 # =========================================================
-# Asset menu
+# ASSET MENU
 # =========================================================
 
 async def show_pair_menu(
     query,
     context,
-    page=0
+    page=0,
 ):
+
+    # -----------------------------------------------------
+    # If cache exists -> instant
+    # -----------------------------------------------------
 
     try:
 
@@ -783,75 +1034,100 @@ async def show_pair_menu(
 
     except Exception as e:
 
-        await query.edit_message_text(
+        await safe_edit(
+
+            query,
 
             "❌ تعذر تحميل قائمة الأصول.\n\n"
 
-            f"الخطأ: {type(e).__name__}\n"
+            f"نوع الخطأ: `{type(e).__name__}`\n\n"
 
             f"{str(e)}",
 
-            reply_markup=InlineKeyboardMarkup([
+            InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "🔄 إعادة المحاولة",
+                        callback_data="pair",
+                    )
+                ],
 
                 [
                     InlineKeyboardButton(
                         "🏠 الرئيسية",
-                        callback_data="home"
+                        callback_data="home",
                     )
-                ]
+                ],
 
-            ])
+            ]),
         )
 
         return
 
     if not assets:
 
-        await query.edit_message_text(
+        await safe_edit(
+
+            query,
 
             "❌ لم يتم العثور على أصول نشطة.",
 
-            reply_markup=InlineKeyboardMarkup([
+            InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "🔄 تحديث",
+                        callback_data="assets_refresh",
+                    )
+                ],
 
                 [
                     InlineKeyboardButton(
                         "🏠 الرئيسية",
-                        callback_data="home"
+                        callback_data="home",
                     )
-                ]
+                ],
 
-            ])
+            ]),
         )
 
         return
+
+    # -----------------------------------------------------
+    # Sort
+    # -----------------------------------------------------
 
     asset_list = sorted(
 
         assets.values(),
 
-        key=lambda x:
-        str(
+        key=lambda x: str(
             x.get(
-                "name",
-                x.get(
-                    "symbol",
-                    ""
-                )
+                "symbol",
+                ""
             )
         ).lower()
     )
 
-    total_pages = (
+    total_pages = max(
 
-        len(asset_list)
-        + ASSETS_PER_PAGE
-        - 1
-    ) // ASSETS_PER_PAGE
+        1,
+
+        (
+            len(asset_list)
+            + ASSETS_PER_PAGE
+            - 1
+        )
+        // ASSETS_PER_PAGE
+    )
 
     page = max(
+
         0,
+
         min(
-            page,
+            int(page),
             total_pages - 1
         )
     )
@@ -871,9 +1147,16 @@ async def show_pair_menu(
 
     keyboard = []
 
+    current_pair = context.user_data.get(
+        "pair"
+    )
+
     for asset in current_assets:
 
-        symbol = asset["symbol"]
+        symbol = asset.get(
+            "symbol",
+            ""
+        )
 
         name = asset.get(
             "name",
@@ -890,39 +1173,25 @@ async def show_pair_menu(
             False
         )
 
+        label = symbol
+
         if is_otc:
 
-            button_text = (
-                f"{name} OTC"
-            )
+            label += " OTC"
 
-        else:
+        if payout:
 
-            button_text = name
-
-        if len(button_text) > 28:
-
-            button_text = (
-                f"{symbol} "
-                f"({payout}%)"
-            )
-
-        # إظهار الأصل المختار
-        current_pair = context.user_data.get(
-            "pair"
-        )
+            label += f" • {payout}%"
 
         if current_pair == symbol:
 
-            button_text = (
-                f"✅ {button_text}"
-            )
+            label = f"✅ {label}"
 
         keyboard.append([
 
             InlineKeyboardButton(
 
-                button_text,
+                label[:64],
 
                 callback_data=(
                     f"asset_{symbol}"
@@ -930,6 +1199,10 @@ async def show_pair_menu(
             )
 
         ])
+
+    # -----------------------------------------------------
+    # Navigation
+    # -----------------------------------------------------
 
     navigation = []
 
@@ -945,6 +1218,14 @@ async def show_pair_menu(
             )
         )
 
+    navigation.append(
+
+        InlineKeyboardButton(
+            f"📄 {page + 1}/{total_pages}",
+            callback_data="noop",
+        )
+    )
+
     if page < total_pages - 1:
 
         navigation.append(
@@ -957,62 +1238,53 @@ async def show_pair_menu(
             )
         )
 
-    if navigation:
-
-        keyboard.append(
-            navigation
-        )
+    keyboard.append(
+        navigation
+    )
 
     keyboard.append([
 
         InlineKeyboardButton(
-            "🔄 تحديث القائمة",
-            callback_data="assets_refresh"
-        )
-
-    ])
-
-    keyboard.append([
+            "🔄 تحديث",
+            callback_data="assets_refresh",
+        ),
 
         InlineKeyboardButton(
             "🏠 الرئيسية",
-            callback_data="home"
-        )
+            callback_data="home",
+        ),
 
     ])
 
-    current = context.user_data.get(
-        "pair",
-        "غير محدد"
-    )
+    current = current_pair or "غير محدد"
 
-    await query.edit_message_text(
+    await safe_edit(
 
-        "💱 اختيار الأصل\n\n"
+        query,
 
-        f"الأصل الحالي: {current}\n"
+        "╭━━━━━━━━━━━━━━━━━━╮\n"
+        "       💱 ASSETS\n"
+        "╰━━━━━━━━━━━━━━━━━━╯\n\n"
 
-        f"🟢 الأصول النشطة: "
-        f"{len(asset_list)}\n"
+        f"🎯 الحالي: `{current}`\n"
+        f"🟢 النشطة: {len(asset_list)}\n"
+        f"📄 الصفحة: {page + 1}/{total_pages}\n\n"
 
-        f"📄 الصفحة: "
-        f"{page + 1}/{total_pages}\n\n"
+        "اختر الأصل 👇",
 
-        "اختر الأصل:",
-
-        reply_markup=InlineKeyboardMarkup(
+        InlineKeyboardMarkup(
             keyboard
-        )
+        ),
     )
 
 
 # =========================================================
-# Duration menu
+# DURATION MENU
 # =========================================================
 
 async def show_duration_menu(
     query,
-    context
+    context,
 ):
 
     pair = context.user_data.get(
@@ -1025,64 +1297,36 @@ async def show_duration_menu(
 
     if not pair:
 
-        await query.edit_message_text(
+        await safe_edit(
 
-            "⚠️ يجب اختيار الأصل أولًا.\n\n"
+            query,
 
-            "اختر الأصل الذي تريد التداول عليه.",
+            "⚠️ يجب اختيار الأصل أولًا.",
 
-            reply_markup=InlineKeyboardMarkup([
+            InlineKeyboardMarkup([
 
                 [
                     InlineKeyboardButton(
                         "💱 اختيار الأصل",
-                        callback_data="pair"
+                        callback_data="pair",
                     )
                 ],
 
                 [
                     InlineKeyboardButton(
                         "🏠 الرئيسية",
-                        callback_data="home"
+                        callback_data="home",
                     )
-                ]
+                ],
 
-            ])
+            ]),
         )
 
         return
 
-    try:
-
-        durations = await get_asset_durations(
-            pair
-        )
-
-    except Exception as e:
-
-        await query.edit_message_text(
-
-            "❌ تعذر الحصول على مدد الأصل.\n\n"
-
-            f"{type(e).__name__}",
-
-            reply_markup=InlineKeyboardMarkup([
-
-                [
-                    InlineKeyboardButton(
-                        "🏠 الرئيسية",
-                        callback_data="home"
-                    )
-                ]
-
-            ])
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # Validate existing duration
-    # -----------------------------------------------------
+    durations = await get_asset_durations(
+        pair
+    )
 
     if (
         current is not None
@@ -1103,7 +1347,7 @@ async def show_duration_menu(
 
     for duration in durations:
 
-        button_text = duration_text(
+        label = duration_text(
             duration
         )
 
@@ -1112,15 +1356,13 @@ async def show_duration_menu(
             and int(current) == int(duration)
         ):
 
-            button_text = (
-                f"✅ {button_text}"
-            )
+            label = f"✅ {label}"
 
         row.append(
 
             InlineKeyboardButton(
 
-                button_text,
+                label,
 
                 callback_data=(
                     f"duration_{duration}"
@@ -1142,117 +1384,131 @@ async def show_duration_menu(
 
         InlineKeyboardButton(
             "🏠 الرئيسية",
-            callback_data="home"
+            callback_data="home",
         )
 
     ])
 
-    current_display = (
+    current_text = (
 
         duration_text(current)
         if current is not None
         else "غير محددة"
     )
 
-    await query.edit_message_text(
+    await safe_edit(
 
-        "⏱ اختيار مدة الصفقة\n\n"
+        query,
 
-        f"💱 الأصل: {pair}\n"
+        "╭━━━━━━━━━━━━━━━━━━╮\n"
+        "      ⏱ DURATION\n"
+        "╰━━━━━━━━━━━━━━━━━━╯\n\n"
 
-        f"⏱ الحالية: {current_display}\n\n"
+        f"💱 الأصل: `{pair}`\n"
+        f"⏱ الحالية: {current_text}\n\n"
 
-        "📋 المدد المدعومة لهذا الأصل:\n"
+        "اختر المدة 👇",
 
-        + ", ".join(
-            duration_text(x)
-            for x in durations
-        )
-
-        + "\n\nاختر المدة:",
-
-        reply_markup=InlineKeyboardMarkup(
+        InlineKeyboardMarkup(
             keyboard
-        )
+        ),
     )
 
 
 # =========================================================
-# Amount menu
+# AMOUNT MENU
 # =========================================================
 
 async def show_amount_menu(
     query,
-    context
+    context,
 ):
 
     current = context.user_data.get(
         "amount"
     )
 
-    keyboard = [
-
-        [
-            InlineKeyboardButton(
-                "1$" if current != 1 else "✅ 1$",
-                callback_data="amount_1"
-            ),
-
-            InlineKeyboardButton(
-                "5$" if current != 5 else "✅ 5$",
-                callback_data="amount_5"
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "10$" if current != 10 else "✅ 10$",
-                callback_data="amount_10"
-            ),
-
-            InlineKeyboardButton(
-                "25$" if current != 25 else "✅ 25$",
-                callback_data="amount_25"
-            ),
-        ],
-
-        [
-            InlineKeyboardButton(
-                "🏠 الرئيسية",
-                callback_data="home"
-            )
-        ],
-
+    amounts = [
+        1,
+        5,
+        10,
+        25,
     ]
 
-    current_text = (
+    keyboard = []
 
-        f"${current}"
+    row = []
+
+    for amount in amounts:
+
+        label = (
+            f"✅ {amount}$"
+            if current == amount
+            else f"{amount}$"
+        )
+
+        row.append(
+
+            InlineKeyboardButton(
+
+                label,
+
+                callback_data=(
+                    f"amount_{amount}"
+                )
+            )
+        )
+
+        if len(row) == 2:
+
+            keyboard.append(row)
+
+            row = []
+
+    if row:
+
+        keyboard.append(row)
+
+    keyboard.append([
+
+        InlineKeyboardButton(
+            "🏠 الرئيسية",
+            callback_data="home",
+        )
+
+    ])
+
+    current_text = (
+        money(current)
         if current is not None
         else "غير محدد"
     )
 
-    await query.edit_message_text(
+    await safe_edit(
 
-        "💵 اختيار المبلغ\n\n"
+        query,
+
+        "╭━━━━━━━━━━━━━━━━━━╮\n"
+        "        💵 AMOUNT\n"
+        "╰━━━━━━━━━━━━━━━━━━╯\n\n"
 
         f"💵 الحالي: {current_text}\n\n"
 
-        "اختر المبلغ:",
+        "اختر المبلغ 👇",
 
-        reply_markup=InlineKeyboardMarkup(
+        InlineKeyboardMarkup(
             keyboard
-        )
+        ),
     )
 
 
 # =========================================================
-# Confirmation
+# CONFIRMATION
 # =========================================================
 
 async def show_trade_confirmation(
     query,
-    context
+    context,
 ):
 
     pair = context.user_data.get(
@@ -1274,73 +1530,61 @@ async def show_trade_confirmation(
     missing = []
 
     if not pair:
-
-        missing.append(
-            "💱 الأصل"
-        )
+        missing.append("💱 الأصل")
 
     if duration is None:
-
-        missing.append(
-            "⏱ المدة"
-        )
+        missing.append("⏱ المدة")
 
     if amount is None:
-
-        missing.append(
-            "💵 المبلغ"
-        )
+        missing.append("💵 المبلغ")
 
     if not direction:
-
-        missing.append(
-            "📈 الاتجاه"
-        )
+        missing.append("📈 الاتجاه")
 
     if missing:
 
-        await query.edit_message_text(
+        await safe_edit(
+
+            query,
 
             "⚠️ إعداد الصفقة غير مكتمل.\n\n"
 
-            "المطلوب:\n"
-
             + "\n".join(
-                f"• {item}"
-                for item in missing
+                f"• {x}"
+                for x in missing
             ),
 
-            reply_markup=InlineKeyboardMarkup([
+            InlineKeyboardMarkup([
 
                 [
                     InlineKeyboardButton(
                         "💱 الأصل",
-                        callback_data="pair"
+                        callback_data="pair",
                     )
                 ],
 
                 [
                     InlineKeyboardButton(
                         "⏱ المدة",
-                        callback_data="duration"
+                        callback_data="duration",
                     )
                 ],
 
                 [
                     InlineKeyboardButton(
                         "💵 المبلغ",
-                        callback_data="amount"
+                        callback_data="amount",
                     )
                 ],
 
                 [
                     InlineKeyboardButton(
                         "🏠 الرئيسية",
-                        callback_data="home"
+                        callback_data="home",
                     )
-                ]
+                ],
 
-            ])
+            ]),
         )
 
         return
@@ -1352,459 +1596,589 @@ async def show_trade_confirmation(
         else "🔴 SELL"
     )
 
-    keyboard = [
+    keyboard = InlineKeyboardMarkup([
 
         [
             InlineKeyboardButton(
-                "✅ تأكيد الصفقة",
-                callback_data="confirm_trade"
+                "🚀 تأكيد الصفقة",
+                callback_data="confirm_trade",
             )
         ],
 
         [
             InlineKeyboardButton(
                 "❌ إلغاء",
-                callback_data="cancel_trade"
+                callback_data="cancel_trade",
             )
         ],
 
         [
             InlineKeyboardButton(
                 "🏠 الرئيسية",
-                callback_data="home"
+                callback_data="home",
             )
-        ]
+        ],
 
-    ]
+    ])
 
-    await query.edit_message_text(
+    await safe_edit(
 
-        "📋 تأكيد الصفقة\n\n"
+        query,
 
-        f"💱 الأصل: {pair}\n"
+        "╭━━━━━━━━━━━━━━━━━━╮\n"
+        "     📋 CONFIRM TRADE\n"
+        "╰━━━━━━━━━━━━━━━━━━╯\n\n"
 
+        f"💱 الأصل: `{pair}`\n"
         f"📈 الاتجاه: {direction_text}\n"
-
-        f"💵 المبلغ: ${amount}\n"
-
-        f"⏱ المدة: "
-        f"{duration_text(duration)}\n\n"
+        f"💵 المبلغ: {money(amount)}\n"
+        f"⏱ المدة: {duration_text(duration)}\n\n"
 
         "🧪 الحساب: DEMO\n\n"
 
-        "⚠️ عند الضغط على تأكيد سيتم إرسال "
-        "الأمر إلى حساب Demo.",
+        "⚠️ تأكد من البيانات قبل التنفيذ.",
 
-        reply_markup=InlineKeyboardMarkup(
-            keyboard
-        )
+        keyboard,
     )
 
 
 # =========================================================
-# Execute trade
+# RESULT PARSER
+# =========================================================
+
+def parse_trade_result(result):
+
+    if result is None:
+
+        return (
+            "ℹ️",
+            "UNKNOWN"
+        )
+
+    # -----------------------------------------------------
+    # Dict
+    # -----------------------------------------------------
+
+    if isinstance(
+        result,
+        dict
+    ):
+
+        status = str(
+            result.get(
+                "result",
+                ""
+            )
+        ).lower()
+
+        if status in (
+            "win",
+            "won",
+            "profit"
+        ):
+
+            return (
+                "🟢",
+                "WIN"
+            )
+
+        if status in (
+            "loss",
+            "lost"
+        ):
+
+            return (
+                "🔴",
+                "LOSS"
+            )
+
+        try:
+
+            profit = float(
+                result.get(
+                    "profit",
+                    0
+                )
+            )
+
+            if profit > 0:
+
+                return (
+                    "🟢",
+                    "WIN"
+                )
+
+            if profit < 0:
+
+                return (
+                    "🔴",
+                    "LOSS"
+                )
+
+            return (
+                "⚪",
+                "DRAW"
+            )
+
+        except Exception:
+
+            pass
+
+    # -----------------------------------------------------
+    # String fallback
+    # -----------------------------------------------------
+
+    text = str(
+        result
+    ).lower()
+
+    if "loss" in text:
+
+        return (
+            "🔴",
+            "LOSS"
+        )
+
+    if "win" in text:
+
+        return (
+            "🟢",
+            "WIN"
+        )
+
+    return (
+        "ℹ️",
+        "UNKNOWN"
+    )
+
+
+# =========================================================
+# EXECUTE TRADE
 # =========================================================
 
 async def execute_trade(
     query,
-    context
+    context,
 ):
 
-    pair = context.user_data.get(
-        "pair"
+    user_id = query.from_user.id
+
+    lock = TRADE_LOCKS.setdefault(
+        user_id,
+        asyncio.Lock()
     )
 
-    amount = context.user_data.get(
-        "amount"
-    )
+    if lock.locked():
 
-    duration = context.user_data.get(
-        "duration"
-    )
+        await safe_answer(
 
-    direction = context.user_data.get(
-        "direction"
-    )
+            query,
 
-    if (
-        not pair
-        or amount is None
-        or duration is None
-        or not direction
-    ):
+            "⏳ توجد صفقة قيد التنفيذ بالفعل.",
 
-        await query.edit_message_text(
-
-            "❌ معلومات الصفقة غير مكتملة.",
-
-            reply_markup=InlineKeyboardMarkup([
-
-                [
-                    InlineKeyboardButton(
-                        "🏠 الرئيسية",
-                        callback_data="home"
-                    )
-                ]
-
-            ])
+            show_alert=True,
         )
 
         return
 
-    await query.edit_message_text(
+    async with lock:
 
-        "⏳ جارٍ فحص الأصل وتنفيذ الصفقة...\n\n"
-
-        f"💱 {pair}\n"
-
-        f"💵 ${amount}\n"
-
-        f"⏱ {duration_text(duration)}"
-    )
-
-    try:
-
-        # -------------------------------------------------
-        # Asset verification
-        # -------------------------------------------------
-
-        assets = await load_active_assets()
-
-        asset_info = assets.get(
-            pair
+        pair = context.user_data.get(
+            "pair"
         )
 
-        if not asset_info:
+        amount = context.user_data.get(
+            "amount"
+        )
 
-            await query.message.reply_text(
+        duration = context.user_data.get(
+            "duration"
+        )
 
-                "❌ الأصل غير موجود في قائمة "
-                "الأصول النشطة:\n\n"
-
-                f"{pair}"
-            )
-
-            return
-
-        if not asset_info.get(
-            "is_active",
-            False
-        ):
-
-            await query.message.reply_text(
-
-                "❌ الأصل غير نشط حاليًا.\n\n"
-
-                f"💱 {pair}"
-            )
-
-            return
-
-        # -------------------------------------------------
-        # Duration verification
-        # -------------------------------------------------
-
-        allowed_candles = sorted(
-            set(
-                int(x)
-                for x in asset_info.get(
-                    "allowed_candles",
-                    []
-                )
-            )
+        direction = context.user_data.get(
+            "direction"
         )
 
         if (
-            allowed_candles
-            and int(duration)
-            not in allowed_candles
+            not pair
+            or amount is None
+            or duration is None
+            or not direction
         ):
 
-            context.user_data.pop(
-                "duration",
-                None
-            )
+            await safe_edit(
 
-            await query.message.reply_text(
+                query,
 
-                "❌ مدة الصفقة غير مدعومة لهذا الأصل.\n\n"
+                "❌ معلومات الصفقة غير مكتملة.",
 
-                f"💱 الأصل: {pair}\n"
-
-                f"⏱ المطلوبة: "
-                f"{duration_text(duration)}\n\n"
-
-                "📋 المدد المدعومة:\n"
-
-                + ", ".join(
-                    duration_text(x)
-                    for x in allowed_candles
-                ),
-
-                reply_markup=InlineKeyboardMarkup([
+                InlineKeyboardMarkup([
 
                     [
                         InlineKeyboardButton(
-                            "⏱ اختيار مدة أخرى",
-                            callback_data="duration"
+                            "🏠 الرئيسية",
+                            callback_data="home",
+                        )
+                    ]
+
+                ]),
+            )
+
+            return
+
+        # -------------------------------------------------
+        # Instant UI
+        # -------------------------------------------------
+
+        await safe_edit(
+
+            query,
+
+            "⏳ جاري تجهيز الصفقة...\n\n"
+
+            f"💱 `{pair}`\n"
+            f"📈 {direction.upper()}\n"
+            f"💵 {money(amount)}\n"
+            f"⏱ {duration_text(duration)}",
+        )
+
+        try:
+
+            # -------------------------------------------------
+            # Asset verification
+            # -------------------------------------------------
+
+            assets = await load_active_assets()
+
+            asset_info = assets.get(
+                pair
+            )
+
+            if not asset_info:
+
+                await safe_edit(
+
+                    query,
+
+                    "❌ الأصل غير متاح حاليًا.\n\n"
+
+                    f"💱 `{pair}`",
+
+                    InlineKeyboardMarkup([
+
+                        [
+                            InlineKeyboardButton(
+                                "💱 اختيار أصل",
+                                callback_data="pair",
+                            )
+                        ],
+
+                        [
+                            InlineKeyboardButton(
+                                "🏠 الرئيسية",
+                                callback_data="home",
+                            )
+                        ],
+
+                    ]),
+                )
+
+                return
+
+            # -------------------------------------------------
+            # Duration verification
+            # -------------------------------------------------
+
+            allowed = sorted(
+                set(
+                    int(x)
+                    for x in asset_info.get(
+                        "allowed_candles",
+                        []
+                    )
+                )
+            )
+
+            if (
+                allowed
+                and int(duration) not in allowed
+            ):
+
+                context.user_data.pop(
+                    "duration",
+                    None
+                )
+
+                await safe_edit(
+
+                    query,
+
+                    "❌ المدة غير مدعومة لهذا الأصل.\n\n"
+
+                    f"💱 `{pair}`\n"
+                    f"⏱ المطلوبة: "
+                    f"{duration_text(duration)}\n\n"
+
+                    "المدد المتاحة:\n"
+
+                    + ", ".join(
+                        duration_text(x)
+                        for x in allowed
+                    ),
+
+                    InlineKeyboardMarkup([
+
+                        [
+                            InlineKeyboardButton(
+                                "⏱ اختيار مدة",
+                                callback_data="duration",
+                            )
+                        ],
+
+                        [
+                            InlineKeyboardButton(
+                                "🏠 الرئيسية",
+                                callback_data="home",
+                            )
+                        ],
+
+                    ]),
+                )
+
+                return
+
+            print("=" * 60)
+            print("TRADE PRE-CHECK")
+            print("PAIR:", pair)
+            print("AMOUNT:", amount)
+            print("DURATION:", duration)
+            print("DIRECTION:", direction)
+            print("SUPPORTED:", allowed)
+            print("=" * 60)
+
+            # -------------------------------------------------
+            # Execute
+            # -------------------------------------------------
+
+            async with PocketOptionAsync(
+                ssid=POCKET_SSID
+            ) as client:
+
+                if not client.is_connected():
+
+                    await client.connect()
+
+                if not client.is_ssid_valid():
+
+                    raise RuntimeError(
+                        "SSID is not valid"
+                    )
+
+                if direction == "buy":
+
+                    trade_id, trade_data = (
+                        await client.buy(
+
+                            pair,
+
+                            float(amount),
+
+                            int(duration),
+
+                            check_win=False,
+                        )
+                    )
+
+                else:
+
+                    trade_id, trade_data = (
+                        await client.sell(
+
+                            pair,
+
+                            float(amount),
+
+                            int(duration),
+
+                            check_win=False,
+                        )
+                    )
+
+                print(
+                    "TRADE ID:",
+                    trade_id
+                )
+
+                print(
+                    "TRADE DATA:",
+                    trade_data
+                )
+
+                direction_text = (
+
+                    "🟢 BUY"
+                    if direction == "buy"
+                    else "🔴 SELL"
+                )
+
+                await safe_edit(
+
+                    query,
+
+                    "╭━━━━━━━━━━━━━━━━━━╮\n"
+                    "      🟢 TRADE OPEN\n"
+                    "╰━━━━━━━━━━━━━━━━━━╯\n\n"
+
+                    f"🆔 `{trade_id}`\n\n"
+
+                    f"💱 الأصل: `{pair}`\n"
+                    f"📈 الاتجاه: {direction_text}\n"
+                    f"💵 المبلغ: {money(amount)}\n"
+                    f"⏱ المدة: "
+                    f"{duration_text(duration)}\n\n"
+
+                    f"💰 Payout: "
+                    f"{asset_info.get('payout', 0)}%\n\n"
+
+                    "⏳ ننتظر النتيجة..."
+                )
+
+                # -------------------------------------------------
+                # Wait
+                # -------------------------------------------------
+
+                await asyncio.sleep(
+                    int(duration)
+                )
+
+                # -------------------------------------------------
+                # Check result
+                # -------------------------------------------------
+
+                try:
+
+                    result = await client.check_win(
+                        trade_id
+                    )
+
+                    print(
+                        "WIN RESULT:",
+                        result
+                    )
+
+                    emoji, label = (
+                        parse_trade_result(
+                            result
+                        )
+                    )
+
+                    await query.message.reply_text(
+
+                        "╭━━━━━━━━━━━━━━━━━━╮\n"
+                        f"      {emoji} TRADE RESULT\n"
+                        "╰━━━━━━━━━━━━━━━━━━╯\n\n"
+
+                        f"🆔 `{trade_id}`\n\n"
+
+                        f"💱 الأصل: `{pair}`\n"
+                        f"📈 الاتجاه: {direction_text}\n"
+                        f"💵 المبلغ: {money(amount)}\n"
+                        f"⏱ المدة: "
+                        f"{duration_text(duration)}\n\n"
+
+                        f"📊 النتيجة: "
+                        f"{emoji} {label}\n\n"
+
+                        f"`{result}`",
+                    )
+
+                except Exception as result_error:
+
+                    print(
+                        "CHECK WIN ERROR:",
+                        type(result_error).__name__,
+                        result_error,
+                    )
+
+                    await query.message.reply_text(
+
+                        "⚠️ تم فتح الصفقة، "
+                        "لكن تعذر قراءة النتيجة.\n\n"
+
+                        f"🆔 `{trade_id}`\n\n"
+
+                        f"الخطأ: "
+                        f"`{type(result_error).__name__}`",
+                    )
+
+        except Exception as e:
+
+            print("=" * 60)
+            print("TRADE ERROR")
+            print(
+                "TYPE:",
+                type(e).__name__
+            )
+            print(
+                "MESSAGE:",
+                str(e)
+            )
+            print("=" * 60)
+
+            await safe_edit(
+
+                query,
+
+                "❌ فشل تنفيذ الصفقة.\n\n"
+
+                f"النوع:\n"
+                f"`{type(e).__name__}`\n\n"
+
+                f"التفاصيل:\n"
+                f"{str(e)}",
+
+                InlineKeyboardMarkup([
+
+                    [
+                        InlineKeyboardButton(
+                            "🔄 إعادة المحاولة",
+                            callback_data="confirm_trade",
                         )
                     ],
 
                     [
                         InlineKeyboardButton(
                             "🏠 الرئيسية",
-                            callback_data="home"
+                            callback_data="home",
                         )
-                    ]
+                    ],
 
-                ])
+                ]),
             )
-
-            return
-
-        # -------------------------------------------------
-        # Debug
-        # -------------------------------------------------
-
-        print("=" * 60)
-        print("TRADE PRE-CHECK")
-        print("PAIR:", pair)
-        print("AMOUNT:", amount)
-        print("DURATION:", duration)
-        print("DIRECTION:", direction)
-        print(
-            "SUPPORTED:",
-            allowed_candles
-        )
-        print("=" * 60)
-
-        # -------------------------------------------------
-        # Connect
-        # -------------------------------------------------
-
-        async with PocketOptionAsync(
-            ssid=POCKET_SSID
-        ) as client:
-
-            if not client.is_connected():
-
-                await client.connect()
-
-            if not client.is_ssid_valid():
-
-                raise RuntimeError(
-                    "SSID is not valid"
-                )
-
-            # -------------------------------------------------
-            # Buy
-            # -------------------------------------------------
-
-            if direction == "buy":
-
-                trade_id, trade_data = (
-                    await client.buy(
-
-                        pair,
-
-                        float(amount),
-
-                        int(duration),
-
-                        check_win=False
-                    )
-                )
-
-            # -------------------------------------------------
-            # Sell
-            # -------------------------------------------------
-
-            else:
-
-                trade_id, trade_data = (
-                    await client.sell(
-
-                        pair,
-
-                        float(amount),
-
-                        int(duration),
-
-                        check_win=False
-                    )
-                )
-
-            print(
-                "TRADE ID:",
-                trade_id
-            )
-
-            print(
-                "TRADE DATA:",
-                trade_data
-            )
-
-            direction_text = (
-
-                "🟢 BUY"
-                if direction == "buy"
-                else "🔴 SELL"
-            )
-
-            await query.edit_message_text(
-
-                "✅ تم فتح الصفقة\n\n"
-
-                f"🆔 Trade ID:\n"
-                f"{trade_id}\n\n"
-
-                f"💱 الأصل: {pair}\n"
-
-                f"📈 الاتجاه: {direction_text}\n"
-
-                f"💵 المبلغ: ${amount}\n"
-
-                f"⏱ المدة: "
-                f"{duration_text(duration)}\n\n"
-
-                f"💰 Payout: "
-                f"{asset_info.get('payout', 0)}%\n\n"
-
-                "⏳ ننتظر النتيجة..."
-            )
-
-            # -------------------------------------------------
-            # Wait
-            # -------------------------------------------------
-
-            await asyncio.sleep(
-                int(duration)
-            )
-
-            # -------------------------------------------------
-            # Result
-            # -------------------------------------------------
-
-            try:
-
-                result = await client.check_win(
-                    trade_id
-                )
-
-                print(
-                    "WIN RESULT:",
-                    result
-                )
-
-                result_text = str(
-                    result
-                ).lower()
-
-                if "win" in result_text:
-
-                    result_emoji = "🟢"
-                    result_label = "WIN"
-
-                elif "loss" in result_text:
-
-                    result_emoji = "🔴"
-                    result_label = "LOSS"
-
-                else:
-
-                    result_emoji = "ℹ️"
-                    result_label = "UNKNOWN"
-
-                await query.message.reply_text(
-
-                    f"{result_emoji} نتيجة الصفقة\n\n"
-
-                    f"🆔 Trade ID:\n"
-                    f"{trade_id}\n\n"
-
-                    f"💱 الأصل: {pair}\n"
-
-                    f"📈 الاتجاه: {direction_text}\n"
-
-                    f"💵 المبلغ: ${amount}\n"
-
-                    f"⏱ المدة: "
-                    f"{duration_text(duration)}\n\n"
-
-                    f"📊 النتيجة: "
-                    f"{result_label}\n\n"
-
-                    f"{result}"
-                )
-
-            except Exception as result_error:
-
-                print(
-                    "CHECK WIN ERROR:",
-                    type(result_error).__name__,
-                    result_error
-                )
-
-                await query.message.reply_text(
-
-                    "⚠️ تم فتح الصفقة، "
-                    "لكن تعذر قراءة النتيجة تلقائيًا.\n\n"
-
-                    f"🆔 Trade ID:\n"
-                    f"{trade_id}\n\n"
-
-                    f"الخطأ: "
-                    f"{type(result_error).__name__}\n"
-
-                    f"{str(result_error)}"
-                )
-
-    except Exception as e:
-
-        print("=" * 60)
-        print("TRADE ERROR")
-        print("TYPE:", type(e).__name__)
-        print("MESSAGE:", str(e))
-        print("REPR:", repr(e))
-        print("=" * 60)
-
-        await query.message.reply_text(
-
-            "❌ فشل تنفيذ الصفقة.\n\n"
-
-            f"نوع الخطأ:\n"
-            f"{type(e).__name__}\n\n"
-
-            f"التفاصيل:\n"
-            f"{str(e)}",
-
-            reply_markup=InlineKeyboardMarkup([
-
-                [
-                    InlineKeyboardButton(
-                        "🏠 الرئيسية",
-                        callback_data="home"
-                    )
-                ]
-
-            ])
-        )
 
 
 # =========================================================
-# Button handler
+# CALLBACK HANDLER
 # =========================================================
 
 async def button_handler(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     query = update.callback_query
 
-    await query.answer()
+    await safe_answer(query)
 
     data = query.data
+
+    # =====================================================
+    # NOOP
+    # =====================================================
+
+    if data == "noop":
+
+        return
 
     # =====================================================
     # HOME
@@ -1846,7 +2220,7 @@ async def button_handler(
         return
 
     # =====================================================
-    # PAIR MENU
+    # PAIR
     # =====================================================
 
     if data == "pair":
@@ -1854,30 +2228,39 @@ async def button_handler(
         await show_pair_menu(
             query,
             context,
-            page=0
+            0
         )
 
         return
 
     # =====================================================
-    # ASSET PAGINATION
+    # PAGE
     # =====================================================
 
     if data.startswith(
         "assets_page_"
     ):
 
-        page = int(
-            data.replace(
-                "assets_page_",
-                ""
+        try:
+
+            page = int(
+                data.replace(
+                    "assets_page_",
+                    ""
+                )
             )
-        )
+
+        except ValueError:
+
+            page = 0
 
         await show_pair_menu(
+
             query,
+
             context,
-            page=page
+
+            page
         )
 
         return
@@ -1892,18 +2275,29 @@ async def button_handler(
         global ASSET_CACHE_TIME
 
         ASSET_CACHE = {}
+
         ASSET_CACHE_TIME = 0
 
-        await show_pair_menu(
+        await safe_edit(
+
             query,
+
+            "⏳ تحديث قائمة الأصول..."
+        )
+
+        await show_pair_menu(
+
+            query,
+
             context,
-            page=0
+
+            0
         )
 
         return
 
     # =====================================================
-    # SELECT ASSET
+    # ASSET SELECT
     # =====================================================
 
     if data.startswith(
@@ -1922,29 +2316,25 @@ async def button_handler(
 
         if not asset_info:
 
-            await query.answer(
+            await safe_answer(
+
+                query,
 
                 "❌ الأصل غير متاح حاليًا.",
 
-                show_alert=True
+                True
             )
 
             return
-
-        # -------------------------------------------------
-        # SAVE PAIR
-        # -------------------------------------------------
 
         context.user_data[
             "pair"
         ] = symbol
 
-        # -------------------------------------------------
-        # Validate old duration
-        # -------------------------------------------------
-
-        old_duration = context.user_data.get(
-            "duration"
+        old_duration = (
+            context.user_data.get(
+                "duration"
+            )
         )
 
         allowed = sorted(
@@ -1969,11 +2359,6 @@ async def button_handler(
                 None
             )
 
-            print(
-                "OLD DURATION REMOVED:",
-                old_duration
-            )
-
         print(
             "SELECTED ASSET:",
             symbol
@@ -1981,12 +2366,10 @@ async def button_handler(
 
         print(
             "USER DATA:",
-            dict(context.user_data)
+            dict(
+                context.user_data
+            )
         )
-
-        # مهم:
-        # لا نمسح amount
-        # لا نمسح direction
 
         await show_main_menu(
             query,
@@ -2016,12 +2399,24 @@ async def button_handler(
         "duration_"
     ):
 
-        duration = int(
-            data.replace(
-                "duration_",
-                ""
+        try:
+
+            duration = int(
+                data.replace(
+                    "duration_",
+                    ""
+                )
             )
-        )
+
+        except ValueError:
+
+            await safe_answer(
+                query,
+                "❌ مدة غير صالحة.",
+                True
+            )
+
+            return
 
         pair = context.user_data.get(
             "pair"
@@ -2029,11 +2424,13 @@ async def button_handler(
 
         if not pair:
 
-            await query.answer(
+            await safe_answer(
+
+                query,
 
                 "❌ اختر الأصل أولًا.",
 
-                show_alert=True
+                True
             )
 
             return
@@ -2047,19 +2444,17 @@ async def button_handler(
             and duration not in durations
         ):
 
-            await query.answer(
+            await safe_answer(
+
+                query,
 
                 f"❌ {duration_text(duration)} "
                 f"غير مدعومة لـ {pair}",
 
-                show_alert=True
+                True
             )
 
             return
-
-        # -------------------------------------------------
-        # SAVE DURATION
-        # -------------------------------------------------
 
         context.user_data[
             "duration"
@@ -2070,11 +2465,6 @@ async def button_handler(
             duration
         )
 
-        print(
-            "USER DATA:",
-            dict(context.user_data)
-        )
-
         await show_main_menu(
             query,
             context
@@ -2083,7 +2473,7 @@ async def button_handler(
         return
 
     # =====================================================
-    # AMOUNT MENU
+    # AMOUNT
     # =====================================================
 
     if data == "amount":
@@ -2103,14 +2493,25 @@ async def button_handler(
         "amount_"
     ):
 
-        amount = float(
-            data.replace(
-                "amount_",
-                ""
-            )
-        )
+        try:
 
-        # SAVE
+            amount = float(
+                data.replace(
+                    "amount_",
+                    ""
+                )
+            )
+
+        except ValueError:
+
+            await safe_answer(
+                query,
+                "❌ مبلغ غير صالح.",
+                True
+            )
+
+            return
+
         context.user_data[
             "amount"
         ] = amount
@@ -2118,11 +2519,6 @@ async def button_handler(
         print(
             "SELECTED AMOUNT:",
             amount
-        )
-
-        print(
-            "USER DATA:",
-            dict(context.user_data)
         )
 
         await show_main_menu(
@@ -2142,15 +2538,6 @@ async def button_handler(
             "direction"
         ] = "buy"
 
-        print(
-            "SELECTED DIRECTION: BUY"
-        )
-
-        print(
-            "USER DATA:",
-            dict(context.user_data)
-        )
-
         await show_trade_confirmation(
             query,
             context
@@ -2167,15 +2554,6 @@ async def button_handler(
         context.user_data[
             "direction"
         ] = "sell"
-
-        print(
-            "SELECTED DIRECTION: SELL"
-        )
-
-        print(
-            "USER DATA:",
-            dict(context.user_data)
-        )
 
         await show_trade_confirmation(
             query,
@@ -2203,9 +2581,6 @@ async def button_handler(
 
     if data == "cancel_trade":
 
-        # فقط إلغاء الاتجاه
-        # ولا نمسح الأصل أو المبلغ أو المدة
-
         context.user_data.pop(
             "direction",
             None
@@ -2220,29 +2595,31 @@ async def button_handler(
 
 
 # =========================================================
-# Error handler
+# ERROR HANDLER
 # =========================================================
 
 async def error_handler(
     update,
-    context
+    context,
 ):
+
+    error = context.error
 
     print("=" * 60)
     print("BOT ERROR")
     print(
         "TYPE:",
-        type(context.error).__name__
+        type(error).__name__
     )
     print(
         "MESSAGE:",
-        str(context.error)
+        str(error)
     )
     print("=" * 60)
 
 
 # =========================================================
-# Main
+# MAIN
 # =========================================================
 
 def main():
@@ -2255,24 +2632,32 @@ def main():
             TELEGRAM_TOKEN
         )
 
-        .connect_timeout(60)
+        .post_init(
+            post_init
+        )
 
-        .read_timeout(60)
+        .connect_timeout(20)
 
-        .write_timeout(60)
+        .read_timeout(30)
 
-        .pool_timeout(60)
+        .write_timeout(30)
 
-        .get_updates_connect_timeout(60)
+        .pool_timeout(30)
 
-        .get_updates_read_timeout(60)
+        .get_updates_connect_timeout(20)
 
-        .get_updates_write_timeout(60)
+        .get_updates_read_timeout(30)
 
-        .get_updates_pool_timeout(60)
+        .get_updates_write_timeout(30)
+
+        .get_updates_pool_timeout(30)
 
         .build()
     )
+
+    # -----------------------------------------------------
+    # Handlers
+    # -----------------------------------------------------
 
     app.add_handler(
 
@@ -2293,15 +2678,53 @@ def main():
         error_handler
     )
 
+    print("=" * 60)
+    print("🚀 TELEGRAM BOT STARTING")
+    print("=" * 60)
+
     print(
-        "Telegram bot started..."
+        "📦 BinaryOptionsToolsV2:"
+        " active_assets()"
     )
 
-    app.run_polling()
+    print(
+        "⚡ Asset cache enabled"
+    )
+
+    print(
+        "🎨 UI enabled"
+    )
+
+    print(
+        "🛡 Safe message editing enabled"
+    )
+
+    print(
+        "⏱ Fast callback handling enabled"
+    )
+
+    print("=" * 60)
+
+    # -----------------------------------------------------
+    # IMPORTANT
+    #
+    # Removes old pending Telegram updates.
+    # It does NOT allow multiple bot instances.
+    # -----------------------------------------------------
+
+    app.run_polling(
+        drop_pending_updates=True,
+        poll_interval=0.0,
+        timeout=10,
+        allowed_updates=[
+            "message",
+            "callback_query",
+        ],
+    )
 
 
 # =========================================================
-# Entry point
+# ENTRY
 # =========================================================
 
 if __name__ == "__main__":
