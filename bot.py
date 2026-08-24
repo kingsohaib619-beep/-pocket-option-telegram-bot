@@ -1,7 +1,12 @@
 import os
 import asyncio
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -27,18 +32,106 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ASSET_CACHE = {}
 ASSET_CACHE_TIME = 0
 
-# تحديث قائمة الأصول كل 5 دقائق
 ASSET_CACHE_TTL = 300
 
-# عدد الأصول في كل صفحة
 ASSETS_PER_PAGE = 12
 
 
 # =========================================================
+# Default durations
+# Used only when the platform does not provide
+# duration information for an asset.
+# =========================================================
+
+DEFAULT_DURATIONS = [
+    30,
+    60,
+    120,
+    180,
+    300,
+    600,
+    900,
+    1800,
+    2700,
+    3600,
+    7200,
+    10800,
+    14400,
+]
+
+
+# =========================================================
+# Convert duration to readable Arabic
+# =========================================================
+
+def duration_text(seconds):
+
+    seconds = int(seconds)
+
+    if seconds < 60:
+
+        return f"{seconds} ثانية"
+
+    if seconds == 60:
+
+        return "1 دقيقة"
+
+    if seconds < 3600:
+
+        minutes = seconds // 60
+
+        if minutes == 2:
+
+            return "2 دقيقة"
+
+        if minutes == 3:
+
+            return "3 دقائق"
+
+        if minutes == 10:
+
+            return "10 دقائق"
+
+        if minutes == 15:
+
+            return "15 دقيقة"
+
+        if minutes == 30:
+
+            return "30 دقيقة"
+
+        if minutes == 45:
+
+            return "45 دقيقة"
+
+        return f"{minutes} دقيقة"
+
+    hours = seconds // 3600
+
+    if hours == 1:
+
+        return "1 ساعة"
+
+    if hours == 2:
+
+        return "2 ساعة"
+
+    if hours == 3:
+
+        return "3 ساعات"
+
+    return f"{hours} ساعة"
+
+
+# =========================================================
 # Get active assets
-# IMPORTANT:
-# BinaryOptionsToolsV2 0.2.13 uses active_assets()
-# NOT get_all_assets()
+#
+# BinaryOptionsToolsV2 0.2.13
+# uses:
+# active_assets()
+#
+# NOT:
+# get_all_assets()
 # =========================================================
 
 async def load_active_assets():
@@ -48,10 +141,15 @@ async def load_active_assets():
 
     now = asyncio.get_running_loop().time()
 
-    # استخدام الكاش إذا كان حديثًا
-    if ASSET_CACHE and (
-        now - ASSET_CACHE_TIME
-    ) < ASSET_CACHE_TTL:
+    # -----------------------------------------------------
+    # Use cache
+    # -----------------------------------------------------
+
+    if (
+        ASSET_CACHE
+        and (now - ASSET_CACHE_TIME)
+        < ASSET_CACHE_TTL
+    ):
 
         return ASSET_CACHE
 
@@ -64,10 +162,6 @@ async def load_active_assets():
         async with PocketOptionAsync(
             ssid=POCKET_SSID
         ) as client:
-
-            # =================================================
-            # CORRECT METHOD
-            # =================================================
 
             if not client.is_connected():
 
@@ -89,14 +183,20 @@ async def load_active_assets():
 
         active_assets = {}
 
+        # =================================================
+        # Parse assets
+        # =================================================
+
         for asset in assets:
 
             if not isinstance(asset, dict):
+
                 continue
 
             symbol = asset.get("symbol")
 
             if not symbol:
+
                 continue
 
             # -------------------------------------------------
@@ -109,10 +209,11 @@ async def load_active_assets():
             )
 
             if is_active is not True:
+
                 continue
 
             # -------------------------------------------------
-            # Allowed candles
+            # Allowed durations
             # -------------------------------------------------
 
             allowed_candles = []
@@ -126,7 +227,14 @@ async def load_active_assets():
 
                 for candle in candles:
 
-                    if isinstance(candle, dict):
+                    # -----------------------------------------
+                    # Candle as dictionary
+                    # -----------------------------------------
+
+                    if isinstance(
+                        candle,
+                        dict
+                    ):
 
                         time_value = candle.get(
                             "time"
@@ -147,16 +255,32 @@ async def load_active_assets():
 
                                 pass
 
+                    # -----------------------------------------
+                    # Candle as number
+                    # -----------------------------------------
+
                     elif isinstance(
                         candle,
                         (int, float)
                     ):
 
-                        allowed_candles.append(
-                            int(candle)
-                        )
+                        try:
 
-            # إزالة التكرار والترتيب
+                            allowed_candles.append(
+                                int(candle)
+                            )
+
+                        except (
+                            TypeError,
+                            ValueError
+                        ):
+
+                            pass
+
+            # -------------------------------------------------
+            # Remove duplicates
+            # -------------------------------------------------
+
             allowed_candles = sorted(
                 set(allowed_candles)
             )
@@ -167,7 +291,9 @@ async def load_active_assets():
 
             active_assets[symbol] = {
 
-                "id": asset.get("id"),
+                "id": asset.get(
+                    "id"
+                ),
 
                 "name": asset.get(
                     "name",
@@ -199,14 +325,34 @@ async def load_active_assets():
                     allowed_candles,
             }
 
-        # حفظ الكاش
+        # =================================================
+        # Save cache
+        # =================================================
+
         ASSET_CACHE = active_assets
+
         ASSET_CACHE_TIME = now
 
         print(
             f"✅ Active assets loaded: "
             f"{len(active_assets)}"
         )
+
+        # -------------------------------------------------
+        # Debug durations
+        # -------------------------------------------------
+
+        for symbol, info in active_assets.items():
+
+            if symbol == "AUDCHF":
+
+                print(
+                    "AUDCHF DURATIONS:",
+                    info.get(
+                        "allowed_candles",
+                        []
+                    )
+                )
 
         print("=" * 60)
 
@@ -215,12 +361,23 @@ async def load_active_assets():
     except Exception as e:
 
         print("=" * 60)
-        print("ASSET LOAD ERROR")
-        print("TYPE:", type(e).__name__)
-        print("MESSAGE:", str(e))
+
+        print(
+            "ASSET LOAD ERROR"
+        )
+
+        print(
+            "TYPE:",
+            type(e).__name__
+        )
+
+        print(
+            "MESSAGE:",
+            str(e)
+        )
+
         print("=" * 60)
 
-        # استخدام الكاش القديم إذا كان موجودًا
         if ASSET_CACHE:
 
             print(
@@ -230,6 +387,65 @@ async def load_active_assets():
             return ASSET_CACHE
 
         raise
+
+
+# =========================================================
+# Get durations for selected asset
+# =========================================================
+
+async def get_asset_durations(pair):
+
+    if not pair:
+
+        return DEFAULT_DURATIONS.copy()
+
+    try:
+
+        assets = await load_active_assets()
+
+        asset_info = assets.get(pair)
+
+        if not asset_info:
+
+            return DEFAULT_DURATIONS.copy()
+
+        allowed = asset_info.get(
+            "allowed_candles",
+            []
+        )
+
+        allowed = sorted(
+            set(
+                int(x)
+                for x in allowed
+            )
+        )
+
+        # -------------------------------------------------
+        # IMPORTANT
+        #
+        # If platform returned durations,
+        # use ONLY those durations.
+        #
+        # This prevents 30 seconds appearing
+        # for AUDCHF when unsupported.
+        # -------------------------------------------------
+
+        if allowed:
+
+            return allowed
+
+        return DEFAULT_DURATIONS.copy()
+
+    except Exception as e:
+
+        print(
+            "GET DURATIONS ERROR:",
+            type(e).__name__,
+            str(e)
+        )
+
+        return DEFAULT_DURATIONS.copy()
 
 
 # =========================================================
@@ -282,6 +498,7 @@ def main_keyboard():
                 callback_data="sell"
             ),
         ],
+
     ])
 
 
@@ -403,6 +620,7 @@ async def show_balance(query):
                     callback_data="home"
                 )
             ],
+
         ]
 
         await query.edit_message_text(
@@ -575,7 +793,6 @@ async def show_pair_menu(
 
         return
 
-    # ترتيب الأصول
     asset_list = sorted(
 
         assets.values(),
@@ -600,7 +817,6 @@ async def show_pair_menu(
 
     ) // ASSETS_PER_PAGE
 
-    # حماية الصفحة
     page = max(
         0,
         min(
@@ -643,7 +859,6 @@ async def show_pair_menu(
             False
         )
 
-        # اسم الزر
         if is_otc:
 
             button_text = (
@@ -654,7 +869,6 @@ async def show_pair_menu(
 
             button_text = name
 
-        # اختصار الاسم الطويل
         if len(button_text) > 28:
 
             button_text = (
@@ -675,7 +889,6 @@ async def show_pair_menu(
 
         ])
 
-    # التنقل
     navigation = []
 
     if page > 0:
@@ -754,7 +967,7 @@ async def show_pair_menu(
 
 
 # =========================================================
-# Duration menu
+# Duration menu - DYNAMIC
 # =========================================================
 
 async def show_duration_menu(
@@ -762,57 +975,176 @@ async def show_duration_menu(
     context
 ):
 
-    current = context.user_data.get(
-        "duration",
-        "غير محددة"
+    pair = context.user_data.get(
+        "pair"
     )
 
-    keyboard = [
+    current = context.user_data.get(
+        "duration"
+    )
 
-        [
-            InlineKeyboardButton(
-                "30 ثانية",
-                callback_data="duration_30"
-            ),
+    # -----------------------------------------------------
+    # Asset required
+    # -----------------------------------------------------
 
-            InlineKeyboardButton(
-                "1 دقيقة",
-                callback_data="duration_60"
-            ),
-        ],
+    if not pair:
 
-        [
-            InlineKeyboardButton(
-                "2 دقيقة",
-                callback_data="duration_120"
-            ),
+        await query.edit_message_text(
 
-            InlineKeyboardButton(
-                "3 دقائق",
-                callback_data="duration_180"
-            ),
-        ],
+            "⚠️ يجب اختيار الأصل أولًا.\n\n"
 
-        [
-            InlineKeyboardButton(
-                "5 دقائق",
-                callback_data="duration_300"
-            ),
-        ],
+            "اختر الأصل الذي تريد التداول عليه.",
 
-        [
-            InlineKeyboardButton(
-                "⬅️ رجوع",
-                callback_data="home"
+            reply_markup=InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "💱 اختيار الأصل",
+                        callback_data="pair"
+                    )
+                ],
+
+                [
+                    InlineKeyboardButton(
+                        "⬅️ رجوع",
+                        callback_data="home"
+                    )
+                ]
+
+            ])
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # Get durations from platform
+    # -----------------------------------------------------
+
+    try:
+
+        durations = await get_asset_durations(
+            pair
+        )
+
+    except Exception as e:
+
+        print(
+            "DURATION LOAD ERROR:",
+            type(e).__name__,
+            str(e)
+        )
+
+        await query.edit_message_text(
+
+            "❌ تعذر الحصول على مدد الأصل.\n\n"
+
+            f"الخطأ: {type(e).__name__}",
+
+            reply_markup=InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "⬅️ رجوع",
+                        callback_data="home"
+                    )
+                ]
+
+            ])
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # If current duration is no longer supported
+    # -----------------------------------------------------
+
+    if (
+        current is not None
+        and durations
+        and int(current) not in durations
+    ):
+
+        context.user_data.pop(
+            "duration",
+            None
+        )
+
+        current = None
+
+    # -----------------------------------------------------
+    # Create keyboard
+    # -----------------------------------------------------
+
+    keyboard = []
+
+    row = []
+
+    for duration in durations:
+
+        button = InlineKeyboardButton(
+
+            duration_text(duration),
+
+            callback_data=(
+                f"duration_{duration}"
             )
-        ],
-    ]
+        )
+
+        row.append(button)
+
+        if len(row) == 2:
+
+            keyboard.append(row)
+
+            row = []
+
+    if row:
+
+        keyboard.append(row)
+
+    # -----------------------------------------------------
+    # Back
+    # -----------------------------------------------------
+
+    keyboard.append([
+
+        InlineKeyboardButton(
+            "⬅️ رجوع",
+            callback_data="home"
+        )
+
+    ])
+
+    # -----------------------------------------------------
+    # Display
+    # -----------------------------------------------------
+
+    if current is not None:
+
+        current_display = duration_text(
+            current
+        )
+
+    else:
+
+        current_display = "غير محددة"
+
+    durations_display = ", ".join(
+        str(x)
+        for x in durations
+    )
 
     await query.edit_message_text(
 
-        "⏱ اختيار المدة\n\n"
+        "⏱ اختيار مدة الصفقة\n\n"
 
-        f"الحالية: {current} ثانية\n\n"
+        f"💱 الأصل: {pair}\n"
+
+        f"⏱ الحالية: {current_display}\n\n"
+
+        "📋 المدد التي أبلغتنا بها المنصة:\n"
+
+        f"{durations_display}\n\n"
 
         "اختر المدة:",
 
@@ -868,6 +1200,7 @@ async def show_amount_menu(
                 callback_data="home"
             )
         ],
+
     ]
 
     await query.edit_message_text(
@@ -912,16 +1245,28 @@ async def show_trade_confirmation(
     missing = []
 
     if not pair:
-        missing.append("💱 الأصل")
+
+        missing.append(
+            "💱 الأصل"
+        )
 
     if not duration:
-        missing.append("⏱ المدة")
+
+        missing.append(
+            "⏱ المدة"
+        )
 
     if not amount:
-        missing.append("💵 المبلغ")
+
+        missing.append(
+            "💵 المبلغ"
+        )
 
     if not direction:
-        missing.append("📈 الاتجاه")
+
+        missing.append(
+            "📈 الاتجاه"
+        )
 
     if missing:
 
@@ -952,6 +1297,7 @@ async def show_trade_confirmation(
                     callback_data="home"
                 )
             ],
+
         ]
 
         await query.edit_message_text(
@@ -1005,6 +1351,7 @@ async def show_trade_confirmation(
             )
 
         ],
+
     ]
 
     await query.edit_message_text(
@@ -1017,7 +1364,8 @@ async def show_trade_confirmation(
 
         f"💵 المبلغ: ${amount}\n"
 
-        f"⏱ المدة: {duration} ثانية\n\n"
+        f"⏱ المدة: "
+        f"{duration_text(duration)}\n\n"
 
         "🧪 الحساب: DEMO\n\n"
 
@@ -1088,7 +1436,7 @@ async def execute_trade(
 
         f"💵 ${amount}\n"
 
-        f"⏱ {duration} ثانية"
+        f"⏱ {duration_text(duration)}"
     )
 
     try:
@@ -1137,9 +1485,14 @@ async def execute_trade(
         # Duration verification
         # =====================================================
 
-        allowed_candles = asset_info.get(
-            "allowed_candles",
-            []
+        allowed_candles = sorted(
+            set(
+                int(x)
+                for x in asset_info.get(
+                    "allowed_candles",
+                    []
+                )
+            )
         )
 
         if (
@@ -1158,14 +1511,21 @@ async def execute_trade(
                 f"💱 الأصل: {pair}\n"
 
                 f"⏱ المدة المطلوبة: "
-                f"{duration} ثانية\n\n"
+                f"{duration_text(duration)}\n\n"
 
-                "المدد التي أبلغتنا بها المنصة:\n"
+                "📋 المدد التي أبلغتنا بها المنصة:\n"
 
                 + ", ".join(
-                    str(x)
+                    duration_text(x)
                     for x in allowed_candles
                 )
+            )
+
+            # Remove invalid selection
+
+            context.user_data.pop(
+                "duration",
+                None
             )
 
             return
@@ -1213,6 +1573,11 @@ async def execute_trade(
         print(
             "DURATION:",
             duration
+        )
+
+        print(
+            "SUPPORTED:",
+            allowed_candles
         )
 
         print("=" * 60)
@@ -1309,7 +1674,8 @@ async def execute_trade(
 
                 f"💵 المبلغ: ${amount}\n"
 
-                f"⏱ المدة: {duration} ثانية\n\n"
+                f"⏱ المدة: "
+                f"{duration_text(duration)}\n\n"
 
                 f"💰 Payout: "
                 f"{asset_info.get('payout', 0)}%\n\n"
@@ -1347,16 +1713,19 @@ async def execute_trade(
                 if "win" in result_text:
 
                     result_emoji = "🟢"
+
                     result_label = "WIN"
 
                 elif "loss" in result_text:
 
                     result_emoji = "🔴"
+
                     result_label = "LOSS"
 
                 else:
 
                     result_emoji = "ℹ️"
+
                     result_label = "UNKNOWN"
 
                 await query.message.reply_text(
@@ -1371,7 +1740,10 @@ async def execute_trade(
                     f"📈 الاتجاه: "
                     f"{direction_text}\n"
 
-                    f"💵 المبلغ: ${amount}\n\n"
+                    f"💵 المبلغ: ${amount}\n"
+
+                    f"⏱ المدة: "
+                    f"{duration_text(duration)}\n\n"
 
                     f"📊 النتيجة: "
                     f"{result_label}\n\n"
@@ -1566,13 +1938,60 @@ async def button_handler(
 
             return
 
+        # -------------------------------------------------
+        # Save pair
+        # -------------------------------------------------
+
         context.user_data[
             "pair"
         ] = symbol
 
+        # -------------------------------------------------
+        # IMPORTANT:
+        # Clear old duration when changing pair
+        # -------------------------------------------------
+
+        old_duration = context.user_data.get(
+            "duration"
+        )
+
+        allowed = asset_info.get(
+            "allowed_candles",
+            []
+        )
+
+        allowed = sorted(
+            set(
+                int(x)
+                for x in allowed
+            )
+        )
+
+        if (
+            old_duration is not None
+            and allowed
+            and int(old_duration)
+            not in allowed
+        ):
+
+            context.user_data.pop(
+                "duration",
+                None
+            )
+
+            print(
+                f"OLD DURATION {old_duration} "
+                f"removed for {symbol}"
+            )
+
         print(
             "SELECTED ASSET:",
             symbol
+        )
+
+        print(
+            "SUPPORTED DURATIONS:",
+            allowed
         )
 
         await show_main_menu(
@@ -1581,7 +2000,7 @@ async def button_handler(
         )
 
     # =====================================================
-    # Duration
+    # Duration menu
     # =====================================================
 
     elif data == "duration":
@@ -1590,6 +2009,10 @@ async def button_handler(
             query,
             context
         )
+
+    # =====================================================
+    # Select duration
+    # =====================================================
 
     elif data.startswith(
         "duration_"
@@ -1602,9 +2025,56 @@ async def button_handler(
             )
         )
 
+        pair = context.user_data.get(
+            "pair"
+        )
+
+        if not pair:
+
+            await query.answer(
+
+                "❌ اختر الأصل أولًا.",
+
+                show_alert=True
+            )
+
+            return
+
+        # -------------------------------------------------
+        # Verify duration
+        # -------------------------------------------------
+
+        durations = await get_asset_durations(
+            pair
+        )
+
+        if (
+            durations
+            and duration not in durations
+        ):
+
+            await query.answer(
+
+                f"❌ {duration_text(duration)} "
+                f"غير مدعومة لـ {pair}",
+
+                show_alert=True
+            )
+
+            return
+
+        # -------------------------------------------------
+        # Save duration
+        # -------------------------------------------------
+
         context.user_data[
             "duration"
         ] = duration
+
+        print(
+            "SELECTED DURATION:",
+            duration
+        )
 
         await show_main_menu(
             query,
