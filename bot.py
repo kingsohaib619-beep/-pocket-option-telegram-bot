@@ -33,14 +33,11 @@ ASSET_CACHE = {}
 ASSET_CACHE_TIME = 0
 
 ASSET_CACHE_TTL = 300
-
 ASSETS_PER_PAGE = 12
 
 
 # =========================================================
 # Default durations
-# Used only when the platform does not provide
-# duration information for an asset.
 # =========================================================
 
 DEFAULT_DURATIONS = [
@@ -61,7 +58,7 @@ DEFAULT_DURATIONS = [
 
 
 # =========================================================
-# Convert duration to readable Arabic
+# Duration text
 # =========================================================
 
 def duration_text(seconds):
@@ -69,39 +66,34 @@ def duration_text(seconds):
     seconds = int(seconds)
 
     if seconds < 60:
-
         return f"{seconds} ثانية"
 
     if seconds == 60:
-
         return "1 دقيقة"
 
     if seconds < 3600:
 
         minutes = seconds // 60
 
-        if minutes == 2:
+        if minutes == 1:
+            return "1 دقيقة"
 
+        if minutes == 2:
             return "2 دقيقة"
 
         if minutes == 3:
-
             return "3 دقائق"
 
         if minutes == 10:
-
             return "10 دقائق"
 
         if minutes == 15:
-
             return "15 دقيقة"
 
         if minutes == 30:
-
             return "30 دقيقة"
 
         if minutes == 45:
-
             return "45 دقيقة"
 
         return f"{minutes} دقيقة"
@@ -109,343 +101,75 @@ def duration_text(seconds):
     hours = seconds // 3600
 
     if hours == 1:
-
         return "1 ساعة"
 
     if hours == 2:
-
         return "2 ساعة"
 
     if hours == 3:
-
         return "3 ساعات"
 
     return f"{hours} ساعة"
 
 
 # =========================================================
-# Get active assets
-#
-# BinaryOptionsToolsV2 0.2.13
-# uses:
-# active_assets()
-#
-# NOT:
-# get_all_assets()
+# Format saved settings
 # =========================================================
 
-async def load_active_assets():
+def get_saved_settings(context):
 
-    global ASSET_CACHE
-    global ASSET_CACHE_TIME
+    pair = context.user_data.get(
+        "pair"
+    )
 
-    now = asyncio.get_running_loop().time()
+    duration = context.user_data.get(
+        "duration"
+    )
 
-    # -----------------------------------------------------
-    # Use cache
-    # -----------------------------------------------------
+    amount = context.user_data.get(
+        "amount"
+    )
 
-    if (
-        ASSET_CACHE
-        and (now - ASSET_CACHE_TIME)
-        < ASSET_CACHE_TTL
-    ):
+    direction = context.user_data.get(
+        "direction"
+    )
 
-        return ASSET_CACHE
+    pair_text = (
+        pair
+        if pair
+        else "غير محدد"
+    )
 
-    try:
+    duration_value = (
+        duration_text(duration)
+        if duration is not None
+        else "غير محددة"
+    )
 
-        print("=" * 60)
-        print("LOADING ACTIVE ASSETS")
-        print("=" * 60)
+    amount_text = (
+        f"${amount}"
+        if amount is not None
+        else "غير محدد"
+    )
 
-        async with PocketOptionAsync(
-            ssid=POCKET_SSID
-        ) as client:
+    if direction == "buy":
 
-            if not client.is_connected():
+        direction_text = "🟢 BUY"
 
-                await client.connect()
+    elif direction == "sell":
 
-            await client.wait_for_assets()
+        direction_text = "🔴 SELL"
 
-            assets = await client.active_assets()
+    else:
 
-        print(
-            "ACTIVE ASSETS TYPE:",
-            type(assets)
-        )
+        direction_text = "غير محدد"
 
-        print(
-            "ACTIVE ASSETS COUNT:",
-            len(assets)
-        )
-
-        active_assets = {}
-
-        # =================================================
-        # Parse assets
-        # =================================================
-
-        for asset in assets:
-
-            if not isinstance(asset, dict):
-
-                continue
-
-            symbol = asset.get("symbol")
-
-            if not symbol:
-
-                continue
-
-            # -------------------------------------------------
-            # Active status
-            # -------------------------------------------------
-
-            is_active = asset.get(
-                "is_active",
-                True
-            )
-
-            if is_active is not True:
-
-                continue
-
-            # -------------------------------------------------
-            # Allowed durations
-            # -------------------------------------------------
-
-            allowed_candles = []
-
-            candles = asset.get(
-                "allowed_candles",
-                []
-            )
-
-            if isinstance(candles, list):
-
-                for candle in candles:
-
-                    # -----------------------------------------
-                    # Candle as dictionary
-                    # -----------------------------------------
-
-                    if isinstance(
-                        candle,
-                        dict
-                    ):
-
-                        time_value = candle.get(
-                            "time"
-                        )
-
-                        if time_value is not None:
-
-                            try:
-
-                                allowed_candles.append(
-                                    int(time_value)
-                                )
-
-                            except (
-                                TypeError,
-                                ValueError
-                            ):
-
-                                pass
-
-                    # -----------------------------------------
-                    # Candle as number
-                    # -----------------------------------------
-
-                    elif isinstance(
-                        candle,
-                        (int, float)
-                    ):
-
-                        try:
-
-                            allowed_candles.append(
-                                int(candle)
-                            )
-
-                        except (
-                            TypeError,
-                            ValueError
-                        ):
-
-                            pass
-
-            # -------------------------------------------------
-            # Remove duplicates
-            # -------------------------------------------------
-
-            allowed_candles = sorted(
-                set(allowed_candles)
-            )
-
-            # -------------------------------------------------
-            # Normalize asset
-            # -------------------------------------------------
-
-            active_assets[symbol] = {
-
-                "id": asset.get(
-                    "id"
-                ),
-
-                "name": asset.get(
-                    "name",
-                    symbol
-                ),
-
-                "symbol": symbol,
-
-                "is_otc": bool(
-                    asset.get(
-                        "is_otc",
-                        False
-                    )
-                ),
-
-                "is_active": True,
-
-                "payout": asset.get(
-                    "payout",
-                    0
-                ),
-
-                "asset_type": asset.get(
-                    "asset_type",
-                    "unknown"
-                ),
-
-                "allowed_candles":
-                    allowed_candles,
-            }
-
-        # =================================================
-        # Save cache
-        # =================================================
-
-        ASSET_CACHE = active_assets
-
-        ASSET_CACHE_TIME = now
-
-        print(
-            f"✅ Active assets loaded: "
-            f"{len(active_assets)}"
-        )
-
-        # -------------------------------------------------
-        # Debug durations
-        # -------------------------------------------------
-
-        for symbol, info in active_assets.items():
-
-            if symbol == "AUDCHF":
-
-                print(
-                    "AUDCHF DURATIONS:",
-                    info.get(
-                        "allowed_candles",
-                        []
-                    )
-                )
-
-        print("=" * 60)
-
-        return active_assets
-
-    except Exception as e:
-
-        print("=" * 60)
-
-        print(
-            "ASSET LOAD ERROR"
-        )
-
-        print(
-            "TYPE:",
-            type(e).__name__
-        )
-
-        print(
-            "MESSAGE:",
-            str(e)
-        )
-
-        print("=" * 60)
-
-        if ASSET_CACHE:
-
-            print(
-                "⚠️ Using old asset cache"
-            )
-
-            return ASSET_CACHE
-
-        raise
-
-
-# =========================================================
-# Get durations for selected asset
-# =========================================================
-
-async def get_asset_durations(pair):
-
-    if not pair:
-
-        return DEFAULT_DURATIONS.copy()
-
-    try:
-
-        assets = await load_active_assets()
-
-        asset_info = assets.get(pair)
-
-        if not asset_info:
-
-            return DEFAULT_DURATIONS.copy()
-
-        allowed = asset_info.get(
-            "allowed_candles",
-            []
-        )
-
-        allowed = sorted(
-            set(
-                int(x)
-                for x in allowed
-            )
-        )
-
-        # -------------------------------------------------
-        # IMPORTANT
-        #
-        # If platform returned durations,
-        # use ONLY those durations.
-        #
-        # This prevents 30 seconds appearing
-        # for AUDCHF when unsupported.
-        # -------------------------------------------------
-
-        if allowed:
-
-            return allowed
-
-        return DEFAULT_DURATIONS.copy()
-
-    except Exception as e:
-
-        print(
-            "GET DURATIONS ERROR:",
-            type(e).__name__,
-            str(e)
-        )
-
-        return DEFAULT_DURATIONS.copy()
+    return (
+        pair_text,
+        duration_value,
+        amount_text,
+        direction_text,
+    )
 
 
 # =========================================================
@@ -503,6 +227,309 @@ def main_keyboard():
 
 
 # =========================================================
+# Load active assets
+#
+# BinaryOptionsToolsV2 0.2.13
+# uses active_assets()
+#
+# NOT get_all_assets()
+# =========================================================
+
+async def load_active_assets():
+
+    global ASSET_CACHE
+    global ASSET_CACHE_TIME
+
+    now = asyncio.get_running_loop().time()
+
+    # -----------------------------------------------------
+    # Cache
+    # -----------------------------------------------------
+
+    if (
+        ASSET_CACHE
+        and
+        (now - ASSET_CACHE_TIME)
+        < ASSET_CACHE_TTL
+    ):
+
+        return ASSET_CACHE
+
+    try:
+
+        print("=" * 60)
+        print("LOADING ACTIVE ASSETS")
+        print("=" * 60)
+
+        async with PocketOptionAsync(
+            ssid=POCKET_SSID
+        ) as client:
+
+            if not client.is_connected():
+
+                await client.connect()
+
+            await client.wait_for_assets()
+
+            assets = await client.active_assets()
+
+        print(
+            "ACTIVE ASSETS TYPE:",
+            type(assets)
+        )
+
+        print(
+            "ACTIVE ASSETS COUNT:",
+            len(assets)
+        )
+
+        active_assets = {}
+
+        # =================================================
+        # Parse assets
+        # =================================================
+
+        for asset in assets:
+
+            if not isinstance(
+                asset,
+                dict
+            ):
+                continue
+
+            symbol = asset.get(
+                "symbol"
+            )
+
+            if not symbol:
+                continue
+
+            # -------------------------------------------------
+            # Active
+            # -------------------------------------------------
+
+            is_active = asset.get(
+                "is_active",
+                True
+            )
+
+            if is_active is not True:
+                continue
+
+            # -------------------------------------------------
+            # Allowed candles
+            # -------------------------------------------------
+
+            allowed_candles = []
+
+            candles = asset.get(
+                "allowed_candles",
+                []
+            )
+
+            if isinstance(
+                candles,
+                list
+            ):
+
+                for candle in candles:
+
+                    if isinstance(
+                        candle,
+                        dict
+                    ):
+
+                        time_value = candle.get(
+                            "time"
+                        )
+
+                        if time_value is not None:
+
+                            try:
+
+                                allowed_candles.append(
+                                    int(time_value)
+                                )
+
+                            except (
+                                TypeError,
+                                ValueError
+                            ):
+
+                                pass
+
+                    elif isinstance(
+                        candle,
+                        (int, float)
+                    ):
+
+                        try:
+
+                            allowed_candles.append(
+                                int(candle)
+                            )
+
+                        except (
+                            TypeError,
+                            ValueError
+                        ):
+
+                            pass
+
+            allowed_candles = sorted(
+                set(
+                    allowed_candles
+                )
+            )
+
+            # -------------------------------------------------
+            # Normalize
+            # -------------------------------------------------
+
+            active_assets[symbol] = {
+
+                "id": asset.get(
+                    "id"
+                ),
+
+                "name": asset.get(
+                    "name",
+                    symbol
+                ),
+
+                "symbol": symbol,
+
+                "is_otc": bool(
+                    asset.get(
+                        "is_otc",
+                        False
+                    )
+                ),
+
+                "is_active": True,
+
+                "payout": asset.get(
+                    "payout",
+                    0
+                ),
+
+                "asset_type": asset.get(
+                    "asset_type",
+                    "unknown"
+                ),
+
+                "allowed_candles":
+                    allowed_candles,
+            }
+
+        ASSET_CACHE = active_assets
+        ASSET_CACHE_TIME = now
+
+        print(
+            f"✅ Active assets loaded: "
+            f"{len(active_assets)}"
+        )
+
+        # Debug
+        if "AUDCHF" in active_assets:
+
+            print(
+                "AUDCHF DURATIONS:",
+                active_assets[
+                    "AUDCHF"
+                ].get(
+                    "allowed_candles",
+                    []
+                )
+            )
+
+        print("=" * 60)
+
+        return active_assets
+
+    except Exception as e:
+
+        print("=" * 60)
+
+        print(
+            "ASSET LOAD ERROR"
+        )
+
+        print(
+            "TYPE:",
+            type(e).__name__
+        )
+
+        print(
+            "MESSAGE:",
+            str(e)
+        )
+
+        print("=" * 60)
+
+        if ASSET_CACHE:
+
+            print(
+                "⚠️ Using old asset cache"
+            )
+
+            return ASSET_CACHE
+
+        raise
+
+
+# =========================================================
+# Get asset durations
+# =========================================================
+
+async def get_asset_durations(pair):
+
+    if not pair:
+
+        return DEFAULT_DURATIONS.copy()
+
+    try:
+
+        assets = await load_active_assets()
+
+        asset_info = assets.get(
+            pair
+        )
+
+        if not asset_info:
+
+            return DEFAULT_DURATIONS.copy()
+
+        allowed = asset_info.get(
+            "allowed_candles",
+            []
+        )
+
+        allowed = sorted(
+            set(
+                int(x)
+                for x in allowed
+            )
+        )
+
+        if allowed:
+
+            return allowed
+
+        return DEFAULT_DURATIONS.copy()
+
+    except Exception as e:
+
+        print(
+            "GET DURATIONS ERROR:",
+            type(e).__name__,
+            str(e)
+        )
+
+        return DEFAULT_DURATIONS.copy()
+
+
+# =========================================================
 # Start
 # =========================================================
 
@@ -511,6 +538,7 @@ async def start(
     context: ContextTypes.DEFAULT_TYPE
 ):
 
+    # فقط /start يمسح الإعدادات القديمة
     context.user_data.clear()
 
     await update.message.reply_text(
@@ -518,6 +546,16 @@ async def start(
         "🤖 Pocket Option Demo Bot\n\n"
 
         "🧪 الحساب: DEMO\n\n"
+
+        "📋 إعدادات الصفقة:\n"
+
+        "💱 الأصل: غير محدد\n"
+
+        "⏱ المدة: غير محددة\n"
+
+        "💵 المبلغ: غير محدد\n"
+
+        "📈 الاتجاه: غير محدد\n\n"
 
         "اختر العملية:",
 
@@ -527,6 +565,8 @@ async def start(
 
 # =========================================================
 # Main menu
+# IMPORTANT:
+# This function NEVER clears user_data
 # =========================================================
 
 async def show_main_menu(
@@ -534,36 +574,14 @@ async def show_main_menu(
     context
 ):
 
-    pair = context.user_data.get(
-        "pair",
-        "غير محدد"
+    (
+        pair,
+        duration,
+        amount,
+        direction
+    ) = get_saved_settings(
+        context
     )
-
-    duration = context.user_data.get(
-        "duration",
-        "غير محددة"
-    )
-
-    amount = context.user_data.get(
-        "amount",
-        "غير محدد"
-    )
-
-    direction = context.user_data.get(
-        "direction"
-    )
-
-    if direction == "buy":
-
-        direction_text = "🟢 BUY"
-
-    elif direction == "sell":
-
-        direction_text = "🔴 SELL"
-
-    else:
-
-        direction_text = "غير محدد"
 
     await query.edit_message_text(
 
@@ -575,11 +593,11 @@ async def show_main_menu(
 
         f"💱 الأصل: {pair}\n"
 
-        f"⏱ المدة: {duration} ثانية\n"
+        f"⏱ المدة: {duration}\n"
 
-        f"💵 المبلغ: ${amount}\n"
+        f"💵 المبلغ: {amount}\n"
 
-        f"📈 الاتجاه: {direction_text}\n\n"
+        f"📈 الاتجاه: {direction}\n\n"
 
         "اختر العملية:",
 
@@ -591,7 +609,10 @@ async def show_main_menu(
 # Balance
 # =========================================================
 
-async def show_balance(query):
+async def show_balance(
+    query,
+    context
+):
 
     try:
 
@@ -616,7 +637,7 @@ async def show_balance(query):
 
             [
                 InlineKeyboardButton(
-                    "⬅️ رجوع",
+                    "🏠 الرئيسية",
                     callback_data="home"
                 )
             ],
@@ -627,7 +648,9 @@ async def show_balance(query):
 
             "💰 Demo Balance\n\n"
 
-            f"{balance}",
+            f"الرصيد: {balance}\n\n"
+
+            "📋 إعداداتك محفوظة.",
 
             reply_markup=InlineKeyboardMarkup(
                 keyboard
@@ -652,7 +675,7 @@ async def show_balance(query):
 
                 [
                     InlineKeyboardButton(
-                        "⬅️ رجوع",
+                        "🏠 الرئيسية",
                         callback_data="home"
                     )
                 ]
@@ -665,7 +688,10 @@ async def show_balance(query):
 # Status
 # =========================================================
 
-async def show_status(query):
+async def show_status(
+    query,
+    context
+):
 
     try:
 
@@ -677,11 +703,15 @@ async def show_status(query):
 
                 await client.connect()
 
-            connected = client.is_connected()
+            connected = (
+                client.is_connected()
+            )
 
             demo = client.is_demo()
 
-            ssid_valid = client.is_ssid_valid()
+            ssid_valid = (
+                client.is_ssid_valid()
+            )
 
         await query.edit_message_text(
 
@@ -694,13 +724,15 @@ async def show_status(query):
             f"{'🟢 نعم' if demo else '🔴 لا'}\n"
 
             f"🔐 SSID: "
-            f"{'🟢 صالح' if ssid_valid else '🔴 غير صالح'}",
+            f"{'🟢 صالح' if ssid_valid else '🔴 غير صالح'}\n\n"
+
+            "📋 إعدادات الصفقة محفوظة.",
 
             reply_markup=InlineKeyboardMarkup([
 
                 [
                     InlineKeyboardButton(
-                        "⬅️ رجوع",
+                        "🏠 الرئيسية",
                         callback_data="home"
                     )
                 ]
@@ -718,7 +750,7 @@ async def show_status(query):
 
         await query.edit_message_text(
 
-            "❌ خطأ في الاتصال:\n"
+            "❌ خطأ في الاتصال:\n\n"
 
             f"{type(e).__name__}",
 
@@ -726,7 +758,7 @@ async def show_status(query):
 
                 [
                     InlineKeyboardButton(
-                        "⬅️ رجوع",
+                        "🏠 الرئيسية",
                         callback_data="home"
                     )
                 ]
@@ -763,7 +795,7 @@ async def show_pair_menu(
 
                 [
                     InlineKeyboardButton(
-                        "⬅️ رجوع",
+                        "🏠 الرئيسية",
                         callback_data="home"
                     )
                 ]
@@ -783,7 +815,7 @@ async def show_pair_menu(
 
                 [
                     InlineKeyboardButton(
-                        "⬅️ رجوع",
+                        "🏠 الرئيسية",
                         callback_data="home"
                     )
                 ]
@@ -814,7 +846,6 @@ async def show_pair_menu(
         len(asset_list)
         + ASSETS_PER_PAGE
         - 1
-
     ) // ASSETS_PER_PAGE
 
     page = max(
@@ -876,6 +907,17 @@ async def show_pair_menu(
                 f"({payout}%)"
             )
 
+        # إظهار الأصل المختار
+        current_pair = context.user_data.get(
+            "pair"
+        )
+
+        if current_pair == symbol:
+
+            button_text = (
+                f"✅ {button_text}"
+            )
+
         keyboard.append([
 
             InlineKeyboardButton(
@@ -901,7 +943,6 @@ async def show_pair_menu(
                     f"assets_page_{page - 1}"
                 )
             )
-
         )
 
     if page < total_pages - 1:
@@ -914,7 +955,6 @@ async def show_pair_menu(
                     f"assets_page_{page + 1}"
                 )
             )
-
         )
 
     if navigation:
@@ -967,7 +1007,7 @@ async def show_pair_menu(
 
 
 # =========================================================
-# Duration menu - DYNAMIC
+# Duration menu
 # =========================================================
 
 async def show_duration_menu(
@@ -982,10 +1022,6 @@ async def show_duration_menu(
     current = context.user_data.get(
         "duration"
     )
-
-    # -----------------------------------------------------
-    # Asset required
-    # -----------------------------------------------------
 
     if not pair:
 
@@ -1006,7 +1042,7 @@ async def show_duration_menu(
 
                 [
                     InlineKeyboardButton(
-                        "⬅️ رجوع",
+                        "🏠 الرئيسية",
                         callback_data="home"
                     )
                 ]
@@ -1015,10 +1051,6 @@ async def show_duration_menu(
         )
 
         return
-
-    # -----------------------------------------------------
-    # Get durations from platform
-    # -----------------------------------------------------
 
     try:
 
@@ -1028,23 +1060,17 @@ async def show_duration_menu(
 
     except Exception as e:
 
-        print(
-            "DURATION LOAD ERROR:",
-            type(e).__name__,
-            str(e)
-        )
-
         await query.edit_message_text(
 
             "❌ تعذر الحصول على مدد الأصل.\n\n"
 
-            f"الخطأ: {type(e).__name__}",
+            f"{type(e).__name__}",
 
             reply_markup=InlineKeyboardMarkup([
 
                 [
                     InlineKeyboardButton(
-                        "⬅️ رجوع",
+                        "🏠 الرئيسية",
                         callback_data="home"
                     )
                 ]
@@ -1055,7 +1081,7 @@ async def show_duration_menu(
         return
 
     # -----------------------------------------------------
-    # If current duration is no longer supported
+    # Validate existing duration
     # -----------------------------------------------------
 
     if (
@@ -1071,26 +1097,36 @@ async def show_duration_menu(
 
         current = None
 
-    # -----------------------------------------------------
-    # Create keyboard
-    # -----------------------------------------------------
-
     keyboard = []
 
     row = []
 
     for duration in durations:
 
-        button = InlineKeyboardButton(
-
-            duration_text(duration),
-
-            callback_data=(
-                f"duration_{duration}"
-            )
+        button_text = duration_text(
+            duration
         )
 
-        row.append(button)
+        if (
+            current is not None
+            and int(current) == int(duration)
+        ):
+
+            button_text = (
+                f"✅ {button_text}"
+            )
+
+        row.append(
+
+            InlineKeyboardButton(
+
+                button_text,
+
+                callback_data=(
+                    f"duration_{duration}"
+                )
+            )
+        )
 
         if len(row) == 2:
 
@@ -1102,36 +1138,20 @@ async def show_duration_menu(
 
         keyboard.append(row)
 
-    # -----------------------------------------------------
-    # Back
-    # -----------------------------------------------------
-
     keyboard.append([
 
         InlineKeyboardButton(
-            "⬅️ رجوع",
+            "🏠 الرئيسية",
             callback_data="home"
         )
 
     ])
 
-    # -----------------------------------------------------
-    # Display
-    # -----------------------------------------------------
+    current_display = (
 
-    if current is not None:
-
-        current_display = duration_text(
-            current
-        )
-
-    else:
-
-        current_display = "غير محددة"
-
-    durations_display = ", ".join(
-        str(x)
-        for x in durations
+        duration_text(current)
+        if current is not None
+        else "غير محددة"
     )
 
     await query.edit_message_text(
@@ -1142,11 +1162,14 @@ async def show_duration_menu(
 
         f"⏱ الحالية: {current_display}\n\n"
 
-        "📋 المدد التي أبلغتنا بها المنصة:\n"
+        "📋 المدد المدعومة لهذا الأصل:\n"
 
-        f"{durations_display}\n\n"
+        + ", ".join(
+            duration_text(x)
+            for x in durations
+        )
 
-        "اختر المدة:",
+        + "\n\nاختر المدة:",
 
         reply_markup=InlineKeyboardMarkup(
             keyboard
@@ -1164,50 +1187,56 @@ async def show_amount_menu(
 ):
 
     current = context.user_data.get(
-        "amount",
-        "غير محدد"
+        "amount"
     )
 
     keyboard = [
 
         [
             InlineKeyboardButton(
-                "$1",
+                "1$" if current != 1 else "✅ 1$",
                 callback_data="amount_1"
             ),
 
             InlineKeyboardButton(
-                "$5",
+                "5$" if current != 5 else "✅ 5$",
                 callback_data="amount_5"
             ),
         ],
 
         [
             InlineKeyboardButton(
-                "$10",
+                "10$" if current != 10 else "✅ 10$",
                 callback_data="amount_10"
             ),
 
             InlineKeyboardButton(
-                "$25",
+                "25$" if current != 25 else "✅ 25$",
                 callback_data="amount_25"
             ),
         ],
 
         [
             InlineKeyboardButton(
-                "⬅️ رجوع",
+                "🏠 الرئيسية",
                 callback_data="home"
             )
         ],
 
     ]
 
+    current_text = (
+
+        f"${current}"
+        if current is not None
+        else "غير محدد"
+    )
+
     await query.edit_message_text(
 
         "💵 اختيار المبلغ\n\n"
 
-        f"الحالي: ${current}\n\n"
+        f"💵 الحالي: {current_text}\n\n"
 
         "اختر المبلغ:",
 
@@ -1250,13 +1279,13 @@ async def show_trade_confirmation(
             "💱 الأصل"
         )
 
-    if not duration:
+    if duration is None:
 
         missing.append(
             "⏱ المدة"
         )
 
-    if not amount:
+    if amount is None:
 
         missing.append(
             "💵 المبلغ"
@@ -1270,36 +1299,6 @@ async def show_trade_confirmation(
 
     if missing:
 
-        keyboard = [
-
-            [
-                InlineKeyboardButton(
-                    "💱 الأصل",
-                    callback_data="pair"
-                ),
-
-                InlineKeyboardButton(
-                    "⏱ المدة",
-                    callback_data="duration"
-                ),
-            ],
-
-            [
-                InlineKeyboardButton(
-                    "💵 المبلغ",
-                    callback_data="amount"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    "⬅️ رجوع",
-                    callback_data="home"
-                )
-            ],
-
-        ]
-
         await query.edit_message_text(
 
             "⚠️ إعداد الصفقة غير مكتمل.\n\n"
@@ -1311,9 +1310,37 @@ async def show_trade_confirmation(
                 for item in missing
             ),
 
-            reply_markup=InlineKeyboardMarkup(
-                keyboard
-            )
+            reply_markup=InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "💱 الأصل",
+                        callback_data="pair"
+                    )
+                ],
+
+                [
+                    InlineKeyboardButton(
+                        "⏱ المدة",
+                        callback_data="duration"
+                    )
+                ],
+
+                [
+                    InlineKeyboardButton(
+                        "💵 المبلغ",
+                        callback_data="amount"
+                    )
+                ],
+
+                [
+                    InlineKeyboardButton(
+                        "🏠 الرئيسية",
+                        callback_data="home"
+                    )
+                ]
+
+            ])
         )
 
         return
@@ -1321,36 +1348,32 @@ async def show_trade_confirmation(
     direction_text = (
 
         "🟢 BUY"
-
         if direction == "buy"
-
         else "🔴 SELL"
     )
 
     keyboard = [
 
         [
-
             InlineKeyboardButton(
                 "✅ تأكيد الصفقة",
                 callback_data="confirm_trade"
-            ),
-
-            InlineKeyboardButton(
-                "❌ إلغاء",
-                callback_data="cancel_trade"
-            ),
-
+            )
         ],
 
         [
-
             InlineKeyboardButton(
-                "⬅️ تعديل",
+                "❌ إلغاء",
+                callback_data="cancel_trade"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "🏠 الرئيسية",
                 callback_data="home"
             )
-
-        ],
+        ]
 
     ]
 
@@ -1405,8 +1428,8 @@ async def execute_trade(
 
     if (
         not pair
-        or not amount
-        or not duration
+        or amount is None
+        or duration is None
         or not direction
     ):
 
@@ -1418,7 +1441,7 @@ async def execute_trade(
 
                 [
                     InlineKeyboardButton(
-                        "⬅️ رجوع",
+                        "🏠 الرئيسية",
                         callback_data="home"
                     )
                 ]
@@ -1441,9 +1464,9 @@ async def execute_trade(
 
     try:
 
-        # =====================================================
+        # -------------------------------------------------
         # Asset verification
-        # =====================================================
+        # -------------------------------------------------
 
         assets = await load_active_assets()
 
@@ -1455,14 +1478,10 @@ async def execute_trade(
 
             await query.message.reply_text(
 
-                "❌ لا يمكن تنفيذ الصفقة.\n\n"
+                "❌ الأصل غير موجود في قائمة "
+                "الأصول النشطة:\n\n"
 
-                "الأصل غير موجود في قائمة "
-                "الأصول النشطة:\n"
-
-                f"`{pair}`",
-
-                parse_mode="Markdown"
+                f"{pair}"
             )
 
             return
@@ -1481,9 +1500,9 @@ async def execute_trade(
 
             return
 
-        # =====================================================
+        # -------------------------------------------------
         # Duration verification
-        # =====================================================
+        # -------------------------------------------------
 
         allowed_candles = sorted(
             set(
@@ -1496,13 +1515,15 @@ async def execute_trade(
         )
 
         if (
-
             allowed_candles
-
             and int(duration)
             not in allowed_candles
-
         ):
+
+            context.user_data.pop(
+                "duration",
+                None
+            )
 
             await query.message.reply_text(
 
@@ -1510,81 +1531,56 @@ async def execute_trade(
 
                 f"💱 الأصل: {pair}\n"
 
-                f"⏱ المدة المطلوبة: "
+                f"⏱ المطلوبة: "
                 f"{duration_text(duration)}\n\n"
 
-                "📋 المدد التي أبلغتنا بها المنصة:\n"
+                "📋 المدد المدعومة:\n"
 
                 + ", ".join(
                     duration_text(x)
                     for x in allowed_candles
-                )
-            )
+                ),
 
-            # Remove invalid selection
+                reply_markup=InlineKeyboardMarkup([
 
-            context.user_data.pop(
-                "duration",
-                None
+                    [
+                        InlineKeyboardButton(
+                            "⏱ اختيار مدة أخرى",
+                            callback_data="duration"
+                        )
+                    ],
+
+                    [
+                        InlineKeyboardButton(
+                            "🏠 الرئيسية",
+                            callback_data="home"
+                        )
+                    ]
+
+                ])
             )
 
             return
 
-        # =====================================================
+        # -------------------------------------------------
         # Debug
-        # =====================================================
+        # -------------------------------------------------
 
         print("=" * 60)
-
-        print(
-            "TRADE PRE-CHECK"
-        )
-
-        print(
-            "NAME:",
-            asset_info.get("name")
-        )
-
-        print(
-            "SYMBOL:",
-            asset_info.get("symbol")
-        )
-
-        print(
-            "ACTIVE:",
-            asset_info.get("is_active")
-        )
-
-        print(
-            "PAYOUT:",
-            asset_info.get("payout")
-        )
-
-        print(
-            "OTC:",
-            asset_info.get("is_otc")
-        )
-
-        print(
-            "TYPE:",
-            asset_info.get("asset_type")
-        )
-
-        print(
-            "DURATION:",
-            duration
-        )
-
+        print("TRADE PRE-CHECK")
+        print("PAIR:", pair)
+        print("AMOUNT:", amount)
+        print("DURATION:", duration)
+        print("DIRECTION:", direction)
         print(
             "SUPPORTED:",
             allowed_candles
         )
-
         print("=" * 60)
 
-        # =====================================================
+        # -------------------------------------------------
         # Connect
-        # =====================================================
+        # -------------------------------------------------
 
         async with PocketOptionAsync(
             ssid=POCKET_SSID
@@ -1600,9 +1596,9 @@ async def execute_trade(
                     "SSID is not valid"
                 )
 
-            # =================================================
-            # BUY
-            # =================================================
+            # -------------------------------------------------
+            # Buy
+            # -------------------------------------------------
 
             if direction == "buy":
 
@@ -1619,9 +1615,9 @@ async def execute_trade(
                     )
                 )
 
-            # =================================================
-            # SELL
-            # =================================================
+            # -------------------------------------------------
+            # Sell
+            # -------------------------------------------------
 
             else:
 
@@ -1651,15 +1647,9 @@ async def execute_trade(
             direction_text = (
 
                 "🟢 BUY"
-
                 if direction == "buy"
-
                 else "🔴 SELL"
             )
-
-            # =================================================
-            # Trade opened
-            # =================================================
 
             await query.edit_message_text(
 
@@ -1683,17 +1673,17 @@ async def execute_trade(
                 "⏳ ننتظر النتيجة..."
             )
 
-            # =================================================
+            # -------------------------------------------------
             # Wait
-            # =================================================
+            # -------------------------------------------------
 
             await asyncio.sleep(
                 int(duration)
             )
 
-            # =================================================
-            # Check result
-            # =================================================
+            # -------------------------------------------------
+            # Result
+            # -------------------------------------------------
 
             try:
 
@@ -1713,19 +1703,16 @@ async def execute_trade(
                 if "win" in result_text:
 
                     result_emoji = "🟢"
-
                     result_label = "WIN"
 
                 elif "loss" in result_text:
 
                     result_emoji = "🔴"
-
                     result_label = "LOSS"
 
                 else:
 
                     result_emoji = "ℹ️"
-
                     result_label = "UNKNOWN"
 
                 await query.message.reply_text(
@@ -1737,8 +1724,7 @@ async def execute_trade(
 
                     f"💱 الأصل: {pair}\n"
 
-                    f"📈 الاتجاه: "
-                    f"{direction_text}\n"
+                    f"📈 الاتجاه: {direction_text}\n"
 
                     f"💵 المبلغ: ${amount}\n"
 
@@ -1776,26 +1762,10 @@ async def execute_trade(
     except Exception as e:
 
         print("=" * 60)
-
-        print(
-            "TRADE ERROR"
-        )
-
-        print(
-            "TYPE:",
-            type(e).__name__
-        )
-
-        print(
-            "MESSAGE:",
-            str(e)
-        )
-
-        print(
-            "REPR:",
-            repr(e)
-        )
-
+        print("TRADE ERROR")
+        print("TYPE:", type(e).__name__)
+        print("MESSAGE:", str(e))
+        print("REPR:", repr(e))
         print("=" * 60)
 
         await query.message.reply_text(
@@ -1806,7 +1776,18 @@ async def execute_trade(
             f"{type(e).__name__}\n\n"
 
             f"التفاصيل:\n"
-            f"{str(e)}"
+            f"{str(e)}",
+
+            reply_markup=InlineKeyboardMarkup([
+
+                [
+                    InlineKeyboardButton(
+                        "🏠 الرئيسية",
+                        callback_data="home"
+                    )
+                ]
+
+            ])
         )
 
 
@@ -1826,7 +1807,7 @@ async def button_handler(
     data = query.data
 
     # =====================================================
-    # Home
+    # HOME
     # =====================================================
 
     if data == "home":
@@ -1836,31 +1817,39 @@ async def button_handler(
             context
         )
 
+        return
+
     # =====================================================
-    # Balance
+    # BALANCE
     # =====================================================
 
-    elif data == "balance":
+    if data == "balance":
 
         await show_balance(
-            query
+            query,
+            context
         )
 
+        return
+
     # =====================================================
-    # Status
+    # STATUS
     # =====================================================
 
-    elif data == "status":
+    if data == "status":
 
         await show_status(
-            query
+            query,
+            context
         )
 
+        return
+
     # =====================================================
-    # Asset menu
+    # PAIR MENU
     # =====================================================
 
-    elif data == "pair":
+    if data == "pair":
 
         await show_pair_menu(
             query,
@@ -1868,11 +1857,13 @@ async def button_handler(
             page=0
         )
 
+        return
+
     # =====================================================
-    # Asset pagination
+    # ASSET PAGINATION
     # =====================================================
 
-    elif data.startswith(
+    if data.startswith(
         "assets_page_"
     ):
 
@@ -1889,17 +1880,18 @@ async def button_handler(
             page=page
         )
 
+        return
+
     # =====================================================
-    # Refresh assets
+    # REFRESH
     # =====================================================
 
-    elif data == "assets_refresh":
+    if data == "assets_refresh":
 
         global ASSET_CACHE
         global ASSET_CACHE_TIME
 
         ASSET_CACHE = {}
-
         ASSET_CACHE_TIME = 0
 
         await show_pair_menu(
@@ -1908,11 +1900,13 @@ async def button_handler(
             page=0
         )
 
+        return
+
     # =====================================================
-    # Select asset
+    # SELECT ASSET
     # =====================================================
 
-    elif data.startswith(
+    if data.startswith(
         "asset_"
     ):
 
@@ -1930,8 +1924,7 @@ async def button_handler(
 
             await query.answer(
 
-                "❌ الأصل غير نشط "
-                "أو لم يعد متاحًا.",
+                "❌ الأصل غير متاح حاليًا.",
 
                 show_alert=True
             )
@@ -1939,7 +1932,7 @@ async def button_handler(
             return
 
         # -------------------------------------------------
-        # Save pair
+        # SAVE PAIR
         # -------------------------------------------------
 
         context.user_data[
@@ -1947,23 +1940,20 @@ async def button_handler(
         ] = symbol
 
         # -------------------------------------------------
-        # IMPORTANT:
-        # Clear old duration when changing pair
+        # Validate old duration
         # -------------------------------------------------
 
         old_duration = context.user_data.get(
             "duration"
         )
 
-        allowed = asset_info.get(
-            "allowed_candles",
-            []
-        )
-
         allowed = sorted(
             set(
                 int(x)
-                for x in allowed
+                for x in asset_info.get(
+                    "allowed_candles",
+                    []
+                )
             )
         )
 
@@ -1980,8 +1970,8 @@ async def button_handler(
             )
 
             print(
-                f"OLD DURATION {old_duration} "
-                f"removed for {symbol}"
+                "OLD DURATION REMOVED:",
+                old_duration
             )
 
         print(
@@ -1990,31 +1980,39 @@ async def button_handler(
         )
 
         print(
-            "SUPPORTED DURATIONS:",
-            allowed
+            "USER DATA:",
+            dict(context.user_data)
         )
+
+        # مهم:
+        # لا نمسح amount
+        # لا نمسح direction
 
         await show_main_menu(
             query,
             context
         )
 
+        return
+
     # =====================================================
-    # Duration menu
+    # DURATION MENU
     # =====================================================
 
-    elif data == "duration":
+    if data == "duration":
 
         await show_duration_menu(
             query,
             context
         )
 
+        return
+
     # =====================================================
-    # Select duration
+    # SELECT DURATION
     # =====================================================
 
-    elif data.startswith(
+    if data.startswith(
         "duration_"
     ):
 
@@ -2040,10 +2038,6 @@ async def button_handler(
 
             return
 
-        # -------------------------------------------------
-        # Verify duration
-        # -------------------------------------------------
-
         durations = await get_asset_durations(
             pair
         )
@@ -2064,7 +2058,7 @@ async def button_handler(
             return
 
         # -------------------------------------------------
-        # Save duration
+        # SAVE DURATION
         # -------------------------------------------------
 
         context.user_data[
@@ -2076,23 +2070,36 @@ async def button_handler(
             duration
         )
 
+        print(
+            "USER DATA:",
+            dict(context.user_data)
+        )
+
         await show_main_menu(
             query,
             context
         )
 
+        return
+
     # =====================================================
-    # Amount
+    # AMOUNT MENU
     # =====================================================
 
-    elif data == "amount":
+    if data == "amount":
 
         await show_amount_menu(
             query,
             context
         )
 
-    elif data.startswith(
+        return
+
+    # =====================================================
+    # SELECT AMOUNT
+    # =====================================================
+
+    if data.startswith(
         "amount_"
     ):
 
@@ -2103,61 +2110,101 @@ async def button_handler(
             )
         )
 
+        # SAVE
         context.user_data[
             "amount"
         ] = amount
+
+        print(
+            "SELECTED AMOUNT:",
+            amount
+        )
+
+        print(
+            "USER DATA:",
+            dict(context.user_data)
+        )
 
         await show_main_menu(
             query,
             context
         )
 
+        return
+
     # =====================================================
     # BUY
     # =====================================================
 
-    elif data == "buy":
+    if data == "buy":
 
         context.user_data[
             "direction"
         ] = "buy"
 
+        print(
+            "SELECTED DIRECTION: BUY"
+        )
+
+        print(
+            "USER DATA:",
+            dict(context.user_data)
+        )
+
         await show_trade_confirmation(
             query,
             context
         )
+
+        return
 
     # =====================================================
     # SELL
     # =====================================================
 
-    elif data == "sell":
+    if data == "sell":
 
         context.user_data[
             "direction"
         ] = "sell"
+
+        print(
+            "SELECTED DIRECTION: SELL"
+        )
+
+        print(
+            "USER DATA:",
+            dict(context.user_data)
+        )
 
         await show_trade_confirmation(
             query,
             context
         )
 
+        return
+
     # =====================================================
-    # Confirm
+    # CONFIRM
     # =====================================================
 
-    elif data == "confirm_trade":
+    if data == "confirm_trade":
 
         await execute_trade(
             query,
             context
         )
 
+        return
+
     # =====================================================
-    # Cancel
+    # CANCEL
     # =====================================================
 
-    elif data == "cancel_trade":
+    if data == "cancel_trade":
+
+        # فقط إلغاء الاتجاه
+        # ولا نمسح الأصل أو المبلغ أو المدة
 
         context.user_data.pop(
             "direction",
@@ -2168,6 +2215,30 @@ async def button_handler(
             query,
             context
         )
+
+        return
+
+
+# =========================================================
+# Error handler
+# =========================================================
+
+async def error_handler(
+    update,
+    context
+):
+
+    print("=" * 60)
+    print("BOT ERROR")
+    print(
+        "TYPE:",
+        type(context.error).__name__
+    )
+    print(
+        "MESSAGE:",
+        str(context.error)
+    )
+    print("=" * 60)
 
 
 # =========================================================
@@ -2216,6 +2287,10 @@ def main():
         CallbackQueryHandler(
             button_handler
         )
+    )
+
+    app.add_error_handler(
+        error_handler
     )
 
     print(
